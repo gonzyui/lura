@@ -73,12 +73,7 @@ export class GithubCommand extends Command {
 			});
 		}
 
-		const response = await fetch(`https://api.github.com/repos/${repository}`, {
-			headers: {
-				Accept: 'application/vnd.github+json',
-				'X-GitHub-Api-Version': '2022-11-28'
-			}
-		});
+		const response = await fetch(`https://api.github.com/repos/${repository}`);
 
 		if (!response.ok) {
 			return interaction.reply({
@@ -110,6 +105,7 @@ export class GithubCommand extends Command {
 			.setURL(repo.html_url ?? `https://github.com/${repository}`)
 			.setDescription(repo.description ?? 'No description provided.')
 			.setThumbnail(repo.owner?.avatar_url ?? null)
+			.setImage(`https://opengraph.githubassets.com/githubcard/${repository}`)
 			.addFields(
 				{ name: 'Language', value: repo.language ?? 'Unknown', inline: true },
 				{ name: 'License', value: repo.license?.spdx_id ?? repo.license?.name ?? 'None', inline: true },
