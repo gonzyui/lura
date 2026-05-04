@@ -129,7 +129,7 @@ export class ClientReadyListener extends Listener {
 					}
 
 					this.container.client.user?.setActivity({
-						name: `Episode ${notif.results[0].episode} of ${notif.results[0].media.title.english || notif.results[0].media.title.native || notif.results[0].media.title.romaji} | ${process.env.PREFIX}help`,
+						name: `Episode ${notif.results[0].episode} of ${notif.results[0].media.title.english || notif.results[0].media.title.native || notif.results[0].media.title.romaji}`,
 						type: ActivityType.Watching
 					});
 				}
