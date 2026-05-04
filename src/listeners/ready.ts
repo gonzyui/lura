@@ -22,7 +22,7 @@ import {
 
 const dev = process.env.NODE_ENV !== 'production';
 
-@ApplyOptions<Listener.Options>({ once: false })
+@ApplyOptions<Listener.Options>({ event: 'clientReady', once: false })
 export class ClientReadyListener extends Listener {
 	private readonly style = dev ? yellow : blue;
 
