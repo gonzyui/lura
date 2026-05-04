@@ -1,7 +1,7 @@
 import './lib/setup';
 
 import { LogLevel, SapphireClient } from '@sapphire/framework';
-import { GatewayIntentBits } from 'discord.js';
+import { GatewayIntentBits, Partials } from 'discord.js';
 
 const client = new SapphireClient({
 	defaultPrefix: process.env.PREFIX,
@@ -9,7 +9,15 @@ const client = new SapphireClient({
 	logger: {
 		level: LogLevel.Debug
 	},
-	intents: [GatewayIntentBits.DirectMessages, GatewayIntentBits.GuildMessages, GatewayIntentBits.Guilds, GatewayIntentBits.MessageContent],
+	intents: [
+		GatewayIntentBits.DirectMessages,
+		GatewayIntentBits.GuildMessages,
+		GatewayIntentBits.Guilds,
+		GatewayIntentBits.MessageContent,
+		GatewayIntentBits.GuildMembers,
+		GatewayIntentBits.GuildMessageReactions
+	],
+	partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.GuildMember],
 	loadMessageCommandListeners: false,
 	defaultCooldown: {
 		delay: 5000,
