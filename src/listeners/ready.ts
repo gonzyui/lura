@@ -1,6 +1,5 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Listener } from '@sapphire/framework';
-import type { StoreRegistryValue } from '@sapphire/pieces';
 import { blue, gray, green, magenta, magentaBright, white, yellow } from 'colorette';
 import { EpisodeNotifier } from '../lib/episodeNotifier';
 
@@ -56,7 +55,7 @@ ${line07} ${pad}
 		logger.info(this.styleStore(last, true));
 	}
 
-	private styleStore(store: StoreRegistryValue, last: boolean) {
+	private styleStore(store: (typeof this.container.client.stores extends Map<any, infer V> ? V : never), last: boolean) {
 		return gray(`${last ? '└─' : '├─'} Loaded ${this.style(store.size.toString().padEnd(3, ' '))} ${store.name}.`);
 	}
 }
