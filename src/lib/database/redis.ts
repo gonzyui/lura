@@ -24,11 +24,11 @@ const redis = new Redis(redisUrl, {
 });
 
 redis.on('connect', () => {
-    container.logger.info('[AniClient] Redis connection established.');
+    container.logger.info('[AniClient] Redis connection established, status:', redis.status);
 });
 
 redis.on('ready', () => {
-    container.logger.info('[AniClient] Redis is ready.');
+    container.logger.info('[AniClient] Redis is ready, status:', redis.status);
 });
 
 redis.on('error', (error) => {
