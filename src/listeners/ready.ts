@@ -34,7 +34,7 @@ export class ClientReadyListener extends Listener {
 
 		const pad = ' '.repeat(7);
 
-		console.log(
+		this.container.logger.info(
 			String.raw`
 ${line01}
 ${line02}

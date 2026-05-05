@@ -115,7 +115,7 @@ export class EpisodeNotifier {
 
             const results = (notif.results ?? []).filter((schedule) => schedule?.airingAt && schedule.media).sort((a, b) => a.airingAt - b.airingAt);
 
-            container.logger.info(`[AniClient] API returned ${results.length} results.`);
+            container.logger.info(`[AniClient] API returned ${results.length} results. ${results.length > 0 ? `(${results.map(r => r.media?.title?.english || r.media?.title?.romaji || r.media?.title?.native).join(', ')})` : '(Nothing)'}`);
 
             let maxAiringAtSeen = this.lastChecked;
 
