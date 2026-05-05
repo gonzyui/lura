@@ -1,0 +1,25 @@
+services:
+  lura:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lura
+    restart: unless-stopped
+    depends_on:
+      - redis
+    env_file:
+      - ./src/.env
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+
+  redis:
+    image: redis:7-alpine
+    container_name: lura-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:
