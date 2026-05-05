@@ -1,4 +1,5 @@
-import { AniListClient } from 'ani-client';
+import { AniListClient, RedisCache } from 'ani-client';
+import redisLikeClient from './redis';
 
 export default class AnilistClient {
 	private static instance: AnilistClient;
@@ -6,12 +7,11 @@ export default class AnilistClient {
 
 	private constructor() {
 		this.aniClient = new AniListClient({
-			cache: {
-				enabled: true,
-				ttl: 60 * 60 * 24 * 14 * 1000,
-				maxSize: 500,
-				staleWhileRevalidateMs: 60 * 60 * 24 * 7 * 1000
-			},
+			cacheAdapter: new RedisCache({
+				client: redisLikeClient,
+				prefix: 'ani-client:',
+				ttl: 86_400,
+			}),
 			rateLimit: {
 				enabled: true,
 				maxRequests: 30,
