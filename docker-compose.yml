@@ -7,8 +7,6 @@ services:
     restart: unless-stopped
     depends_on:
       - redis
-    env_file:
-      - ./src/.env
     environment:
       NODE_ENV: production
       REDIS_URL: redis://redis:6379

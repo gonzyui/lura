@@ -102,7 +102,7 @@ In the Supabase dashboard, open your project and get the Postgres connection str
 Example format:
 
 ```env
-SUPABASE_DB_URL=postgresql://postgres:your-password@db.your-project-ref.supabase.co:5432/postgres
+SUPABASE_URL=postgresql://postgres:your-password@db.your-project-ref.supabase.co:5432/postgres
 ```
 
 If Supabase shows a password placeholder, replace it with the database password you chose when creating the project.
