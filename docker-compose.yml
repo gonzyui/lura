@@ -1,8 +1,6 @@
 services:
   lura:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/gonzyui/lura:latest
     container_name: lura
     restart: unless-stopped
     depends_on:
