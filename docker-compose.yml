@@ -4,7 +4,8 @@ services:
     container_name: lura
     restart: unless-stopped
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     environment:
       - NODE_ENV=production
       - REDIS_URL=redis://redis:6379
@@ -12,14 +13,36 @@ services:
       - SUPABASE_URL
       - SUPABASE_SERVICE_ROLE_KEY
       - WELCOME_CHANNEL
+    deploy:
+      resources:
+        limits:
+          cpus: '0.75'
+          memory: 384M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   redis:
     image: redis:7-alpine
     container_name: lura-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --appendfsync everysec
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 192M
+        reservations:
+          cpus: '0.10'
+          memory: 64M
 
 volumes:
   redis_data:
