@@ -12,9 +12,8 @@ services:
       REDIS_URL: ${REDIS_URL}
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
-  SUPABASE_DB_URL: ${SUPABASE_DB_URL}
+      WELCOME_CHANNEL: ${WELCOME_CHANNEL}
   redis:
     image: redis:7-alpine
     container_name: lura-redis
