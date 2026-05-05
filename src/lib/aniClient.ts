@@ -1,5 +1,5 @@
 import { AniListClient, RedisCache } from 'ani-client';
-import redisLikeClient from './redis';
+import redisLikeClient from './database/redis';
 
 export default class AnilistClient {
 	private static instance: AnilistClient;

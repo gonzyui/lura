@@ -16,7 +16,8 @@ import {
     TextDisplayBuilder,
     ThumbnailBuilder
 } from 'discord.js';
-import { redis } from './redis';
+import { redis } from './database/redis';
+import { getNewsChannelId } from './database/guildSettingsStore';
 
 const LAST_CHECKED_KEY = 'lura:episode-notifier:lastChecked';
 const LAST_ACTIVITY_KEY = 'lura:episode-notifier:lastActivity';
@@ -128,11 +129,11 @@ export class EpisodeNotifier {
         return result === 'OK';
     }
 
-    private async getNewsChannel() {
-        const channelId = process.env.NEWS_CHANNEL;
+    private async getNewsChannel(guildId: string) {
+        const channelId = await getNewsChannelId(guildId);
 
         if (!channelId) {
-            container.logger.warn('[AniClient] NEWS_CHANNEL is not defined.');
+            container.logger.warn(`[AniClient] No news channel configured for guild ${guildId}.`);
             return null;
         }
 
@@ -143,13 +144,12 @@ export class EpisodeNotifier {
 
         const fetched = await container.client.channels.fetch(channelId).catch(() => null);
         if (!fetched?.isSendable()) {
-            container.logger.warn('[AniClient] News channel not found or not sendable.');
+            container.logger.warn(`[AniClient] News channel ${channelId} not found or not sendable.`);
             return null;
         }
 
         return fetched;
     }
-
     private async tick() {
         if (this.isRunning) {
             container.logger.warn('[AniClient] Tick skipped: previous run still active.');
@@ -162,8 +162,19 @@ export class EpisodeNotifier {
         try {
             await this.loadState();
 
-            const channel = await this.getNewsChannel();
-            if (!channel) return;
+            const guildChannels = (
+                await Promise.all(
+                    [...container.client.guilds.cache.values()].map(async (guild) => {
+                        const channel = await this.getNewsChannel(guild.id);
+                        return channel ? { guild, channel } : null;
+                    })
+                )
+            ).filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+            if (guildChannels.length === 0) {
+                container.logger.warn('[AniClient] No configured news channels found.');
+                return;
+            }
 
             const notif = await AnilistClient.getInstance()
                 .getAniClient()
@@ -178,7 +189,9 @@ export class EpisodeNotifier {
                 .sort((a, b) => a.airingAt - b.airingAt);
 
             container.logger.info(
-                `[AniClient] API returned ${results.length} results. ${results.length > 0 ? `(${results.map((r) => r.media?.title?.english || r.media?.title?.romaji || r.media?.title?.native).join(', ')})` : '(Nothing)'}`
+                `[AniClient] API returned ${results.length} results. ${results.length > 0
+                    ? `(${results.map((r) => r.media?.title?.english || r.media?.title?.romaji || r.media?.title?.native).join(', ')})`
+                    : '(Nothing)'}`
             );
 
             let maxAiringAtSeen = this.lastChecked;
@@ -213,22 +226,30 @@ export class EpisodeNotifier {
 
                 const thumb = media.coverImage?.extraLarge || media.coverImage?.large;
                 if (thumb) {
-                    section.setThumbnailAccessory(new ThumbnailBuilder().setURL(thumb).setDescription(`Cover image of ${title}`));
+                    section.setThumbnailAccessory(
+                        new ThumbnailBuilder().setURL(thumb).setDescription(`Cover image of ${title}`)
+                    );
                 }
 
                 messageContainer.addSectionComponents(section);
 
                 if (media.bannerImage) {
-                    messageContainer.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+                    messageContainer.addSeparatorComponents(
+                        new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+                    );
 
                     messageContainer.addMediaGalleryComponents(
                         new MediaGalleryBuilder().addItems(
-                            new MediaGalleryItemBuilder().setURL(media.bannerImage).setDescription(`Banner image of ${title}`)
+                            new MediaGalleryItemBuilder()
+                                .setURL(media.bannerImage)
+                                .setDescription(`Banner image of ${title}`)
                         )
                     );
                 }
 
-                messageContainer.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+                messageContainer.addSeparatorComponents(
+                    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+                );
 
                 messageContainer.addTextDisplayComponents(
                     new TextDisplayBuilder().setContent(
@@ -247,18 +268,22 @@ export class EpisodeNotifier {
                         .setURL(media.siteUrl || 'https://anilist.co')
                 );
 
-                await channel.send({
-                    flags: MessageFlags.IsComponentsV2,
-                    components: [messageContainer, row],
-                    allowedMentions: { parse: [] }
-                });
+                for (const { guild, channel } of guildChannels) {
+                    await channel.send({
+                        flags: MessageFlags.IsComponentsV2,
+                        components: [messageContainer, row],
+                        allowedMentions: { parse: [] }
+                    });
+
+                    container.logger.info(
+                        `[AniClient] New episode sent to guild ${guild.id}: ${title} #${schedule.episode ?? 'Unknown'} (${this.makeKey(schedule)})`
+                    );
+                }
 
                 latestActivity = {
                     title,
                     episode: schedule.episode ?? '?'
                 };
-
-                container.logger.info(`[AniClient] New episode sent: ${title} #${schedule.episode ?? 'Unknown'} (${this.makeKey(schedule)})`);
             }
 
             if (results.length > 0) {
