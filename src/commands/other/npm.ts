@@ -82,7 +82,7 @@ export class NpmCommand extends Command {
 
 		if (!response.ok) {
 			return interaction.reply({
-				content: 'Package not found.',
+				content: '> Package not found.',
 				flags: MessageFlags.Ephemeral
 			});
 		}
@@ -91,7 +91,7 @@ export class NpmCommand extends Command {
 
 		if (!isNpmPackageMetadata(data)) {
 			return interaction.reply({
-				content: 'Invalid npm registry response.',
+				content: '> Invalid npm registry response.',
 				flags: MessageFlags.Ephemeral
 			});
 		}
@@ -102,7 +102,7 @@ export class NpmCommand extends Command {
 
 		if (!latest) {
 			return interaction.reply({
-				content: 'Could not resolve the latest package version.',
+				content: '> Could not resolve the latest package version.',
 				flags: MessageFlags.Ephemeral
 			});
 		}
@@ -112,10 +112,10 @@ export class NpmCommand extends Command {
 		const maintainers =
 			pkg.maintainers && pkg.maintainers.length > 0
 				? pkg.maintainers
-						.map((maintainer) => maintainer.name)
-						.filter((name): name is string => Boolean(name))
-						.slice(0, 5)
-						.join(', ')
+					.map((maintainer) => maintainer.name)
+					.filter((name): name is string => Boolean(name))
+					.slice(0, 5)
+					.join(', ')
 				: 'Unknown';
 
 		const repositoryUrl = typeof latest.repository === 'string' ? latest.repository : (latest.repository?.url ?? null);

@@ -5,22 +5,28 @@ import {
 	ApplicationIntegrationType,
 	ContainerBuilder,
 	InteractionContextType,
-	MediaGalleryBuilder,
-	MediaGalleryItemBuilder,
 	MessageFlags,
 	SectionBuilder,
+	TextDisplayBuilder,
+	ThumbnailBuilder,
 	SeparatorBuilder,
 	SeparatorSpacingSize,
-	TextDisplayBuilder,
-	ThumbnailBuilder
+	MediaGalleryBuilder,
+	MediaGalleryItemBuilder
 } from 'discord.js';
-import AnilistClient from '../lib/aniClient';
+import AnilistClient from '../../lib/aniClient';
 import { MediaSort, MediaType } from 'ani-client';
 
 @ApplyOptions<Command.Options>({
-	description: 'Shows informations about manga.'
+	description: 'Shows informations about anime.',
+	requiredClientPermissions: ["SendMessages", "AttachFiles", "EmbedLinks"],
+	preconditions: ["GuildOnly"],
+	cooldownDelay: 3000,
+	cooldownLimit: 1,
 })
-export class MangaCommand extends Command {
+export class AnimeCommand extends Command {
+	public usage = "/anime <name>";
+
 	public override registerApplicationCommands(registry: Command.Registry) {
 		const integrationTypes: ApplicationIntegrationType[] = [ApplicationIntegrationType.GuildInstall];
 		const contexts: InteractionContextType[] = [InteractionContextType.Guild];
@@ -33,7 +39,7 @@ export class MangaCommand extends Command {
 			options: [
 				{
 					name: 'name',
-					description: 'Name of the manga.',
+					description: 'Name of the anime.',
 					type: ApplicationCommandOptionType.String,
 					required: true
 				}
@@ -48,7 +54,7 @@ export class MangaCommand extends Command {
 			.getAniClient()
 			.searchMedia({
 				query: name,
-				type: MediaType.MANGA,
+				type: MediaType.ANIME,
 				sort: [MediaSort.POPULARITY_DESC]
 			});
 
@@ -56,7 +62,7 @@ export class MangaCommand extends Command {
 
 		if (!media) {
 			return interaction.reply({
-				content: 'No manga found.',
+				content: '> No anime found.',
 				flags: MessageFlags.Ephemeral
 			});
 		}
@@ -78,13 +84,13 @@ export class MangaCommand extends Command {
 		let description = stripHtml(media.description);
 		if (description.length > 700) description = `${description.slice(0, 697)}...`;
 
+		const studios = media.studios?.nodes?.map((studio) => studio.name).join(', ') || 'Unknown';
 		const genres = media.genres?.join(', ') || 'Unknown';
 
 		const quickFacts = [
 			`**Format:** ${media.format ?? 'Unknown'}`,
 			`**Status:** ${media.status ?? 'Unknown'}`,
-			`**Chapters:** ${media.chapters ?? 'Unknown'}`,
-			`**Volumes:** ${media.volumes ?? 'Unknown'}`,
+			`**Episodes:** ${media.episodes ?? 'Unknown'}`,
 			`**Source:** ${media.source ?? 'Unknown'}`,
 			`**Score:** ${media.averageScore ?? 'Unknown'}`,
 			`**Mean Score:** ${media.meanScore ?? 'Unknown'}`,
@@ -93,6 +99,7 @@ export class MangaCommand extends Command {
 			`**Start Date:** ${formatDate(media.startDate)}`,
 			`**End Date:** ${formatDate(media.endDate)}`,
 			`**Genres:** ${genres}`,
+			`**Studios:** ${studios}`,
 			media.siteUrl ? `**AniList:** ${media.siteUrl}` : null
 		]
 			.filter(Boolean)
@@ -104,7 +111,14 @@ export class MangaCommand extends Command {
 			new SectionBuilder()
 				.addTextDisplayComponents(
 					new TextDisplayBuilder().setContent(`# ${title}`),
-					new TextDisplayBuilder().setContent(description || '*No description available.*')
+					new TextDisplayBuilder().setContent(
+						[
+							media.season && media.seasonYear ? `**${media.season} ${media.seasonYear}**` : null,
+							description || '*No description available.*'
+						]
+							.filter(Boolean)
+							.join('\n\n')
+					)
 				)
 				.setThumbnailAccessory(
 					new ThumbnailBuilder()

@@ -10,7 +10,7 @@ import {
     PermissionFlagsBits,
     TextChannel
 } from 'discord.js';
-import { setNewsChannel } from '../lib/database/guildSettingsStore';
+import { setNewsChannel } from '../../lib/database/guildSettingsStore';
 
 @ApplyOptions<Command.Options>({
     description: 'Configure the bot for this server.'
@@ -41,7 +41,7 @@ export class ConfigCommand extends Command {
     public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
         if (!interaction.inGuild() || !interaction.guildId) {
             return interaction.reply({
-                content: 'This command can only be used in a server.',
+                content: '> This command can only be used in a server.',
                 flags: MessageFlags.Ephemeral,
                 allowedMentions: { parse: [] }
             });
@@ -50,7 +50,7 @@ export class ConfigCommand extends Command {
         const memberPermissions = interaction.memberPermissions;
         if (!memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
             return interaction.reply({
-                content: 'You need the Manage Server permission to use this command.',
+                content: '> You need the Manage Server permission to use this command.',
                 flags: MessageFlags.Ephemeral,
                 allowedMentions: { parse: [] }
             });
@@ -60,7 +60,7 @@ export class ConfigCommand extends Command {
 
         if (!channel.isSendable() || channel.isDMBased()) {
             return interaction.reply({
-                content: 'Please choose a server text channel.',
+                content: '> Please choose a server text channel.',
                 flags: MessageFlags.Ephemeral,
                 allowedMentions: { parse: [] }
             });
@@ -85,7 +85,7 @@ export class ConfigCommand extends Command {
             this.container.logger.error('[Config] Failed to update guild settings:', error);
 
             return interaction.reply({
-                content: 'Failed to update the server configuration.',
+                content: '> Failed to update the server configuration.',
                 flags: MessageFlags.Ephemeral,
                 allowedMentions: { parse: [] }
             });

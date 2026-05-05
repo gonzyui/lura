@@ -68,7 +68,7 @@ export class GithubCommand extends Command {
 
 		if (!repository.includes('/')) {
 			return interaction.reply({
-				content: 'Please use the format `owner/repo`.',
+				content: '> Please use the format `owner/repo`.',
 				flags: MessageFlags.Ephemeral
 			});
 		}
@@ -77,7 +77,7 @@ export class GithubCommand extends Command {
 
 		if (!response.ok) {
 			return interaction.reply({
-				content: 'Repository not found.',
+				content: '> Repository not found.',
 				flags: MessageFlags.Ephemeral
 			});
 		}
@@ -86,7 +86,7 @@ export class GithubCommand extends Command {
 
 		if (!isGitHubRepository(data)) {
 			return interaction.reply({
-				content: 'Invalid GitHub API response.',
+				content: '> Invalid GitHub API response.',
 				flags: MessageFlags.Ephemeral
 			});
 		}

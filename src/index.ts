@@ -4,8 +4,6 @@ import { LogLevel, SapphireClient } from '@sapphire/framework';
 import { GatewayIntentBits, Partials } from 'discord.js';
 
 const client = new SapphireClient({
-	defaultPrefix: process.env.PREFIX,
-	caseInsensitiveCommands: true,
 	logger: {
 		level: LogLevel.Debug
 	},
@@ -15,14 +13,16 @@ const client = new SapphireClient({
 		GatewayIntentBits.Guilds,
 		GatewayIntentBits.MessageContent,
 		GatewayIntentBits.GuildMembers,
-		GatewayIntentBits.GuildMessageReactions
+		GatewayIntentBits.GuildMessageReactions,
+		GatewayIntentBits.GuildMessageTyping
 	],
 	partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.GuildMember],
 	loadMessageCommandListeners: false,
 	defaultCooldown: {
 		delay: 5000,
 		limit: 2
-	}
+	},
+	typing: true,
 });
 
 const main = async () => {

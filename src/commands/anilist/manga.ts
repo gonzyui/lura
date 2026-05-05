@@ -14,13 +14,13 @@ import {
 	TextDisplayBuilder,
 	ThumbnailBuilder
 } from 'discord.js';
-import AnilistClient from '../lib/aniClient';
-import { CharacterSort } from 'ani-client';
+import AnilistClient from '../../lib/aniClient';
+import { MediaSort, MediaType } from 'ani-client';
 
 @ApplyOptions<Command.Options>({
-	description: 'Shows informations about a character.'
+	description: 'Shows informations about manga.'
 })
-export class CharactersCommand extends Command {
+export class MangaCommand extends Command {
 	public override registerApplicationCommands(registry: Command.Registry) {
 		const integrationTypes: ApplicationIntegrationType[] = [ApplicationIntegrationType.GuildInstall];
 		const contexts: InteractionContextType[] = [InteractionContextType.Guild];
@@ -33,7 +33,7 @@ export class CharactersCommand extends Command {
 			options: [
 				{
 					name: 'name',
-					description: 'Name of the character.',
+					description: 'Name of the manga.',
 					type: ApplicationCommandOptionType.String,
 					required: true
 				}
@@ -46,16 +46,17 @@ export class CharactersCommand extends Command {
 
 		const search = await AnilistClient.getInstance()
 			.getAniClient()
-			.searchCharacters({
+			.searchMedia({
 				query: name,
-				sort: [CharacterSort.FAVOURITES_DESC]
+				type: MediaType.MANGA,
+				sort: [MediaSort.POPULARITY_DESC]
 			});
 
-		const character = search?.results?.[0];
+		const media = search?.results?.[0];
 
-		if (!character) {
+		if (!media) {
 			return interaction.reply({
-				content: 'No character found.',
+				content: '> No manga found.',
 				flags: MessageFlags.Ephemeral
 			});
 		}
@@ -72,28 +73,27 @@ export class CharactersCommand extends Command {
 			return parts.join('-');
 		};
 
-		const characterName =
-			[character.name?.full, [character.name?.first, character.name?.last].filter(Boolean).join(' ').trim(), character.name?.native].find(
-				Boolean
-			) || 'Unknown character';
+		const title = media.title.romaji || media.title.english || media.title.native || 'Unknown title';
 
-		let description = stripHtml(character.description);
+		let description = stripHtml(media.description);
 		if (description.length > 700) description = `${description.slice(0, 697)}...`;
 
-		const mediaPreview = character.media?.nodes?.slice(0, 4) || [];
-		const featuredIn =
-			mediaPreview
-				.map((media) => media.title?.romaji || media.title?.english || media.title?.native)
-				.filter(Boolean)
-				.join(', ') || 'Unknown';
+		const genres = media.genres?.join(', ') || 'Unknown';
 
 		const quickFacts = [
-			`**Gender:** ${character.gender ?? 'Unknown'}`,
-			`**Age:** ${character.age ?? 'Unknown'}`,
-			`**Birthday:** ${formatDate(character.dateOfBirth)}`,
-			`**Favorites:** ${character.favourites ?? 'Unknown'}`,
-			`**Featured in:** ${featuredIn}`,
-			character.siteUrl ? `**AniList:** ${character.siteUrl}` : null
+			`**Format:** ${media.format ?? 'Unknown'}`,
+			`**Status:** ${media.status ?? 'Unknown'}`,
+			`**Chapters:** ${media.chapters ?? 'Unknown'}`,
+			`**Volumes:** ${media.volumes ?? 'Unknown'}`,
+			`**Source:** ${media.source ?? 'Unknown'}`,
+			`**Score:** ${media.averageScore ?? 'Unknown'}`,
+			`**Mean Score:** ${media.meanScore ?? 'Unknown'}`,
+			`**Popularity:** ${media.popularity ?? 'Unknown'}`,
+			`**Favorites:** ${media.favourites ?? 'Unknown'}`,
+			`**Start Date:** ${formatDate(media.startDate)}`,
+			`**End Date:** ${formatDate(media.endDate)}`,
+			`**Genres:** ${genres}`,
+			media.siteUrl ? `**AniList:** ${media.siteUrl}` : null
 		]
 			.filter(Boolean)
 			.join('\n');
@@ -103,30 +103,22 @@ export class CharactersCommand extends Command {
 		container.addSectionComponents(
 			new SectionBuilder()
 				.addTextDisplayComponents(
-					new TextDisplayBuilder().setContent(`# ${characterName}`),
+					new TextDisplayBuilder().setContent(`# ${title}`),
 					new TextDisplayBuilder().setContent(description || '*No description available.*')
 				)
 				.setThumbnailAccessory(
 					new ThumbnailBuilder()
-						.setURL(character.image?.large || character.image?.medium || '')
-						.setDescription(`Portrait of ${characterName}`)
+						.setURL(media.coverImage?.extraLarge || media.coverImage?.large || '')
+						.setDescription(`Cover image of ${title}`)
 				)
 		);
 
-		const galleryItems = mediaPreview
-			.filter((media) => media.coverImage?.extraLarge || media.coverImage?.large)
-			.map((media) =>
-				new MediaGalleryItemBuilder()
-					.setURL(media.coverImage?.extraLarge || media.coverImage?.large || '')
-					.setDescription(
-						`${characterName} appears in ${media.title?.romaji || media.title?.english || media.title?.native || 'this media'}`
-					)
-			);
-
-		if (galleryItems.length > 0) {
+		if (media.bannerImage) {
 			container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
-			container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(galleryItems));
+			container.addMediaGalleryComponents(
+				new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(media.bannerImage).setDescription(`Banner image of ${title}`))
+			);
 		}
 
 		container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));

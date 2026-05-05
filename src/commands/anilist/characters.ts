@@ -5,22 +5,22 @@ import {
 	ApplicationIntegrationType,
 	ContainerBuilder,
 	InteractionContextType,
+	MediaGalleryBuilder,
+	MediaGalleryItemBuilder,
 	MessageFlags,
 	SectionBuilder,
-	TextDisplayBuilder,
-	ThumbnailBuilder,
 	SeparatorBuilder,
 	SeparatorSpacingSize,
-	MediaGalleryBuilder,
-	MediaGalleryItemBuilder
+	TextDisplayBuilder,
+	ThumbnailBuilder
 } from 'discord.js';
-import AnilistClient from '../lib/aniClient';
-import { MediaSort, MediaType } from 'ani-client';
+import AnilistClient from '../../lib/aniClient';
+import { CharacterSort } from 'ani-client';
 
 @ApplyOptions<Command.Options>({
-	description: 'Shows informations about anime.'
+	description: 'Shows informations about a character.'
 })
-export class AnimeCommand extends Command {
+export class CharactersCommand extends Command {
 	public override registerApplicationCommands(registry: Command.Registry) {
 		const integrationTypes: ApplicationIntegrationType[] = [ApplicationIntegrationType.GuildInstall];
 		const contexts: InteractionContextType[] = [InteractionContextType.Guild];
@@ -33,7 +33,7 @@ export class AnimeCommand extends Command {
 			options: [
 				{
 					name: 'name',
-					description: 'Name of the anime.',
+					description: 'Name of the character.',
 					type: ApplicationCommandOptionType.String,
 					required: true
 				}
@@ -46,17 +46,16 @@ export class AnimeCommand extends Command {
 
 		const search = await AnilistClient.getInstance()
 			.getAniClient()
-			.searchMedia({
+			.searchCharacters({
 				query: name,
-				type: MediaType.ANIME,
-				sort: [MediaSort.POPULARITY_DESC]
+				sort: [CharacterSort.FAVOURITES_DESC]
 			});
 
-		const media = search?.results?.[0];
+		const character = search?.results?.[0];
 
-		if (!media) {
+		if (!character) {
 			return interaction.reply({
-				content: 'No anime found.',
+				content: '> No character found.',
 				flags: MessageFlags.Ephemeral
 			});
 		}
@@ -73,28 +72,28 @@ export class AnimeCommand extends Command {
 			return parts.join('-');
 		};
 
-		const title = media.title.romaji || media.title.english || media.title.native || 'Unknown title';
+		const characterName =
+			[character.name?.full, [character.name?.first, character.name?.last].filter(Boolean).join(' ').trim(), character.name?.native].find(
+				Boolean
+			) || 'Unknown character';
 
-		let description = stripHtml(media.description);
+		let description = stripHtml(character.description);
 		if (description.length > 700) description = `${description.slice(0, 697)}...`;
 
-		const studios = media.studios?.nodes?.map((studio) => studio.name).join(', ') || 'Unknown';
-		const genres = media.genres?.join(', ') || 'Unknown';
+		const mediaPreview = character.media?.nodes?.slice(0, 4) || [];
+		const featuredIn =
+			mediaPreview
+				.map((media) => media.title?.romaji || media.title?.english || media.title?.native)
+				.filter(Boolean)
+				.join(', ') || 'Unknown';
 
 		const quickFacts = [
-			`**Format:** ${media.format ?? 'Unknown'}`,
-			`**Status:** ${media.status ?? 'Unknown'}`,
-			`**Episodes:** ${media.episodes ?? 'Unknown'}`,
-			`**Source:** ${media.source ?? 'Unknown'}`,
-			`**Score:** ${media.averageScore ?? 'Unknown'}`,
-			`**Mean Score:** ${media.meanScore ?? 'Unknown'}`,
-			`**Popularity:** ${media.popularity ?? 'Unknown'}`,
-			`**Favorites:** ${media.favourites ?? 'Unknown'}`,
-			`**Start Date:** ${formatDate(media.startDate)}`,
-			`**End Date:** ${formatDate(media.endDate)}`,
-			`**Genres:** ${genres}`,
-			`**Studios:** ${studios}`,
-			media.siteUrl ? `**AniList:** ${media.siteUrl}` : null
+			`**Gender:** ${character.gender ?? 'Unknown'}`,
+			`**Age:** ${character.age ?? 'Unknown'}`,
+			`**Birthday:** ${formatDate(character.dateOfBirth)}`,
+			`**Favorites:** ${character.favourites ?? 'Unknown'}`,
+			`**Featured in:** ${featuredIn}`,
+			character.siteUrl ? `**AniList:** ${character.siteUrl}` : null
 		]
 			.filter(Boolean)
 			.join('\n');
@@ -104,29 +103,30 @@ export class AnimeCommand extends Command {
 		container.addSectionComponents(
 			new SectionBuilder()
 				.addTextDisplayComponents(
-					new TextDisplayBuilder().setContent(`# ${title}`),
-					new TextDisplayBuilder().setContent(
-						[
-							media.season && media.seasonYear ? `**${media.season} ${media.seasonYear}**` : null,
-							description || '*No description available.*'
-						]
-							.filter(Boolean)
-							.join('\n\n')
-					)
+					new TextDisplayBuilder().setContent(`# ${characterName}`),
+					new TextDisplayBuilder().setContent(description || '*No description available.*')
 				)
 				.setThumbnailAccessory(
 					new ThumbnailBuilder()
-						.setURL(media.coverImage?.extraLarge || media.coverImage?.large || '')
-						.setDescription(`Cover image of ${title}`)
+						.setURL(character.image?.large || character.image?.medium || '')
+						.setDescription(`Portrait of ${characterName}`)
 				)
 		);
 
-		if (media.bannerImage) {
+		const galleryItems = mediaPreview
+			.filter((media) => media.coverImage?.extraLarge || media.coverImage?.large)
+			.map((media) =>
+				new MediaGalleryItemBuilder()
+					.setURL(media.coverImage?.extraLarge || media.coverImage?.large || '')
+					.setDescription(
+						`${characterName} appears in ${media.title?.romaji || media.title?.english || media.title?.native || 'this media'}`
+					)
+			);
+
+		if (galleryItems.length > 0) {
 			container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
-			container.addMediaGalleryComponents(
-				new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(media.bannerImage).setDescription(`Banner image of ${title}`))
-			);
+			container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(galleryItems));
 		}
 
 		container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
