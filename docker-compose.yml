@@ -9,7 +9,7 @@ services:
       - redis
     environment:
       - NODE_ENV=production
-      - REDIS_URL
+      - REDIS_URL=redis://redis:6379
       - DISCORD_TOKEN
       - SUPABASE_URL
       - SUPABASE_SERVICE_ROLE_KEY
