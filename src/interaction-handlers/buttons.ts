@@ -8,6 +8,14 @@ import {
     MessageFlags
 } from 'discord.js';
 
+function capitalize(str: string) {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function formatCategory(category: string) {
+    return category.split(' > ').map(capitalize).join(' > ');
+}
+
 export class HelpButtonsHandler extends InteractionHandler {
     public constructor(ctx: InteractionHandler.LoaderContext, options: InteractionHandler.Options) {
         super(ctx, {
@@ -19,38 +27,34 @@ export class HelpButtonsHandler extends InteractionHandler {
     public override parse(interaction: ButtonInteraction) {
         if (!interaction.customId.startsWith('help-category:')) return this.none();
 
-        const [, userId, category] = interaction.customId.split(':');
+        const [, userId, ...categoryParts] = interaction.customId.split(':');
+        const category = categoryParts.join(':');
+        if (!userId || !category) return this.none();
+
         return this.some({ userId, category });
     }
 
     public override async run(
         interaction: ButtonInteraction,
-        parsed: InteractionHandler.ParseResult<this>
+        { userId, category }: { userId: string; category: string }
     ) {
-        const { userId, category } = parsed;
-
         if (interaction.user.id !== userId) {
             return interaction.reply({
-                content: `> This help menu is not for you.`,
+                content: '> This help menu is not for you.',
                 flags: MessageFlags.Ephemeral
             });
         }
 
         const commandStore = this.container.stores.get('commands');
         const commands = [...commandStore.values()]
-            .filter((command) => command.name !== 'help')
+            .filter((cmd) => cmd.name !== 'help')
             .sort((a, b) => a.name.localeCompare(b.name));
 
         const grouped = new Map<string, typeof commands>();
-
-        for (const command of commands) {
-            const key = command.fullCategory.length > 0 ? command.fullCategory.join(' > ') : 'Other';
-
-            if (!grouped.has(key)) {
-                grouped.set(key, []);
-            }
-
-            grouped.get(key)!.push(command);
+        for (const cmd of commands) {
+            const key = cmd.fullCategory.length > 0 ? cmd.fullCategory.join(' > ') : 'Other';
+            if (!grouped.has(key)) grouped.set(key, []);
+            grouped.get(key)!.push(cmd);
         }
 
         const categories = [...grouped.keys()].sort((a, b) => a.localeCompare(b));
@@ -58,23 +62,22 @@ export class HelpButtonsHandler extends InteractionHandler {
 
         const embed = new EmbedBuilder()
             .setColor(0xff1a64)
-            .setTitle('Help Menu')
-            .setDescription(`Category: **${category}**`)
+            .setTitle(`${formatCategory(category)} — Commands`)
             .addFields({
-                name: category,
+                name: '\u200b',
                 value:
                     currentCommands
-                        .map((command) => `**/${command.name}** — ${command.description || 'No description provided.'}`)
+                        .map((cmd) => `**/${cmd.name}** — ${cmd.description || 'No description provided.'}`)
                         .join('\n')
                         .slice(0, 1024) || 'No commands available.'
             })
-            .setFooter({ text: `Total commands: ${commands.length}` })
+            .setFooter({ text: `${currentCommands.length} command(s) in this category` })
             .setTimestamp();
 
         const buttons = categories.slice(0, 5).map((entry) =>
             new ButtonBuilder()
                 .setCustomId(`help-category:${userId}:${entry}`)
-                .setLabel(entry)
+                .setLabel(formatCategory(entry))
                 .setStyle(entry === category ? ButtonStyle.Primary : ButtonStyle.Secondary)
         );
 

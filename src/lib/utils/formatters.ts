@@ -11,3 +11,15 @@ export const formatDate = (date?: { year?: number | null; month?: number | null;
 
 export const truncate = (text: string, max: number): string =>
     text.length > max ? `${text.slice(0, max - 3)}...` : text;
+
+export function capitalize(str: string) {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+export function formatCategory(category: string) {
+    return category.split(' > ').map(capitalize).join(' > ');
+}
+
+export function formatBytes(bytes: number) {
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
