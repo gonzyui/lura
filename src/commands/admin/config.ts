@@ -7,24 +7,22 @@ import {
     EmbedBuilder,
     InteractionContextType,
     MessageFlags,
-    PermissionFlagsBits,
-    TextChannel
+    PermissionFlagsBits
 } from 'discord.js';
 import { setNewsChannel } from '../../lib/database/guildSettingsStore';
 
 @ApplyOptions<Command.Options>({
-    description: 'Configure the bot for this server.'
+    description: 'Configure the bot for this server.',
+    requiredClientPermissions: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks],
+    requiredUserPermissions: [PermissionFlagsBits.ManageGuild]
 })
 export class ConfigCommand extends Command {
     public override registerApplicationCommands(registry: Command.Registry) {
-        const integrationTypes: ApplicationIntegrationType[] = [ApplicationIntegrationType.GuildInstall];
-        const contexts: InteractionContextType[] = [InteractionContextType.Guild];
-
         registry.registerChatInputCommand({
             name: this.name,
             description: this.description,
-            integrationTypes,
-            contexts,
+            integrationTypes: [ApplicationIntegrationType.GuildInstall],
+            contexts: [InteractionContextType.Guild],
             defaultMemberPermissions: PermissionFlagsBits.ManageGuild,
             options: [
                 {
@@ -39,30 +37,31 @@ export class ConfigCommand extends Command {
     }
 
     public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
-        if (!interaction.inGuild() || !interaction.guildId) {
+        if (!interaction.inCachedGuild()) {
             return interaction.reply({
                 content: '> This command can only be used in a server.',
-                flags: MessageFlags.Ephemeral,
-                allowedMentions: { parse: [] }
+                flags: MessageFlags.Ephemeral
             });
         }
 
-        const memberPermissions = interaction.memberPermissions;
-        if (!memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
-            return interaction.reply({
-                content: '> You need the Manage Server permission to use this command.',
-                flags: MessageFlags.Ephemeral,
-                allowedMentions: { parse: [] }
-            });
-        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-        const channel: TextChannel = interaction.options.getChannel('news_channel', true);
+        const channel = interaction.options.getChannel('news_channel', true, [
+            ChannelType.GuildText,
+            ChannelType.GuildAnnouncement
+        ]);
 
-        if (!channel.isSendable() || channel.isDMBased()) {
-            return interaction.reply({
-                content: '> Please choose a server text channel.',
-                flags: MessageFlags.Ephemeral,
-                allowedMentions: { parse: [] }
+        const me = interaction.guild.members.me!;
+        const botPerms = channel.permissionsFor(me);
+        const missing: string[] = [];
+
+        if (!botPerms?.has(PermissionFlagsBits.ViewChannel)) missing.push('View Channel');
+        if (!botPerms?.has(PermissionFlagsBits.SendMessages)) missing.push('Send Messages');
+        if (!botPerms?.has(PermissionFlagsBits.EmbedLinks)) missing.push('Embed Links');
+
+        if (missing.length > 0) {
+            return interaction.editReply({
+                content: `> I'm missing the following permissions in ${channel}: **${missing.join(', ')}**.`
             });
         }
 
@@ -76,18 +75,12 @@ export class ConfigCommand extends Command {
                 .setFooter({ text: `Guild ID: ${interaction.guildId}` })
                 .setTimestamp();
 
-            return interaction.reply({
-                embeds: [embed],
-                flags: MessageFlags.Ephemeral,
-                allowedMentions: { parse: [] }
-            });
+            return interaction.editReply({ embeds: [embed] });
         } catch (error) {
             this.container.logger.error('[Config] Failed to update guild settings:', error);
 
-            return interaction.reply({
-                content: '> Failed to update the server configuration.',
-                flags: MessageFlags.Ephemeral,
-                allowedMentions: { parse: [] }
+            return interaction.editReply({
+                content: '> Failed to update the server configuration. Please try again later.'
             });
         }
     }

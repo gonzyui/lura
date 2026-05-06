@@ -1,3 +1,4 @@
+-- Table
 create table if not exists public.guild_settings (
     guild_id text primary key,
     news_channel_id text,
@@ -6,9 +7,12 @@ create table if not exists public.guild_settings (
     updated_at timestamptz not null default now()
 );
 
+-- Trigger function (avec search_path fixé)
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
+security invoker
+set search_path = ''
 as $$
 begin
     new.updated_at = now();
@@ -16,14 +20,22 @@ begin
 end;
 $$;
 
- drop trigger if exists guild_settings_set_updated_at on public.guild_settings;
+-- Trigger
+drop trigger if exists guild_settings_set_updated_at on public.guild_settings;
 create trigger guild_settings_set_updated_at
 before update on public.guild_settings
 for each row
 execute function public.set_updated_at();
 
+-- Index partiel (utile si tu listes les guilds notifiables)
+create index if not exists guild_settings_notifications_enabled_idx
+    on public.guild_settings (notifications_enabled)
+    where notifications_enabled = true;
+
+-- RLS
 alter table public.guild_settings enable row level security;
 
+drop policy if exists "Service role can manage guild settings" on public.guild_settings;
 create policy "Service role can manage guild settings"
 on public.guild_settings
 as permissive
@@ -31,3 +43,19 @@ for all
 to service_role
 using (true)
 with check (true);
+
+-- Realtime publication (idempotent)
+do $$
+begin
+    if not exists (
+        select 1 from pg_publication_tables
+        where pubname = 'supabase_realtime'
+          and schemaname = 'public'
+          and tablename = 'guild_settings'
+    ) then
+        alter publication supabase_realtime add table public.guild_settings;
+    end if;
+end $$;
+
+-- Replica identity full (pour avoir tout le old row dans les events)
+alter table public.guild_settings replica identity full;

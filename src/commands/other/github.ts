@@ -1,6 +1,12 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
-import { ApplicationCommandOptionType, ApplicationIntegrationType, EmbedBuilder, InteractionContextType, MessageFlags } from 'discord.js';
+import {
+	ApplicationCommandOptionType,
+	ApplicationIntegrationType,
+	EmbedBuilder,
+	InteractionContextType,
+	MessageFlags
+} from 'discord.js';
 
 interface GitHubOwner {
 	login?: string;
@@ -31,27 +37,30 @@ interface GitHubRepository {
 	license?: GitHubLicense | null;
 }
 
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+const isObject = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null;
 
 const isGitHubRepository = (value: unknown): value is GitHubRepository => {
 	if (!isObject(value)) return false;
-
-	return ('full_name' in value || 'html_url' in value || 'owner' in value) && (value.owner === undefined || isObject(value.owner));
+	return (
+		('full_name' in value || 'html_url' in value || 'owner' in value) &&
+		(value.owner === undefined || isObject(value.owner))
+	);
 };
+
+const formatDate = (value?: string | null): string =>
+	value ? `<t:${Math.floor(new Date(value).getTime() / 1000)}:D>` : 'Unknown';
 
 @ApplyOptions<Command.Options>({
 	description: 'Shows information about a GitHub repository.'
 })
 export class GithubCommand extends Command {
 	public override registerApplicationCommands(registry: Command.Registry) {
-		const integrationTypes: ApplicationIntegrationType[] = [ApplicationIntegrationType.GuildInstall];
-		const contexts: InteractionContextType[] = [InteractionContextType.Guild];
-
 		registry.registerChatInputCommand({
 			name: this.name,
 			description: this.description,
-			integrationTypes,
-			contexts,
+			integrationTypes: [ApplicationIntegrationType.GuildInstall],
+			contexts: [InteractionContextType.Guild],
 			options: [
 				{
 					name: 'repository',
@@ -73,27 +82,21 @@ export class GithubCommand extends Command {
 			});
 		}
 
+		await interaction.deferReply();
+
 		const response = await fetch(`https://api.github.com/repos/${repository}`);
 
 		if (!response.ok) {
-			return interaction.reply({
-				content: '> Repository not found.',
-				flags: MessageFlags.Ephemeral
-			});
+			return interaction.editReply({ content: '> Repository not found.' });
 		}
 
 		const data: unknown = await response.json();
 
 		if (!isGitHubRepository(data)) {
-			return interaction.reply({
-				content: '> Invalid GitHub API response.',
-				flags: MessageFlags.Ephemeral
-			});
+			return interaction.editReply({ content: '> Invalid GitHub API response.' });
 		}
 
 		const repo = data;
-
-		const formatDate = (value?: string | null) => (value ? `<t:${Math.floor(new Date(value).getTime() / 1000)}:D>` : 'Unknown');
 
 		const embed = new EmbedBuilder()
 			.setColor(0x24292f)
@@ -120,12 +123,10 @@ export class GithubCommand extends Command {
 				{ name: 'Pushed', value: formatDate(repo.pushed_at), inline: true },
 				{ name: 'Owner', value: repo.owner?.login ?? 'Unknown', inline: true }
 			)
-			.setFooter({
-				text: 'Lura - GitHub Lookup'
-			})
+			.setFooter({ text: 'Lura - GitHub Lookup' })
 			.setTimestamp();
 
-		return interaction.reply({
+		return interaction.editReply({
 			embeds: [embed],
 			allowedMentions: { parse: [] }
 		});
