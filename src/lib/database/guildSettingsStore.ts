@@ -5,6 +5,7 @@ import { guildSettingsCacheKey, invalidateGuildSettings, GUILD_SETTINGS_CACHE_TT
 
 export type GuildSettings = {
 	guild_id: string;
+	airing_channel_id: string | null;
 	news_channel_id: string | null;
 	notifications_enabled: boolean;
 	created_at?: string;
@@ -38,6 +39,12 @@ export async function getGuildSettings(guildId: string): Promise<GuildSettings |
 	return data as GuildSettings | null;
 }
 
+export async function getAiringChannelId(guildId: string): Promise<string | null> {
+	const settings = await getGuildSettings(guildId);
+	if (!settings?.notifications_enabled) return null;
+	return settings.airing_channel_id;
+}
+
 export async function getNewsChannelId(guildId: string): Promise<string | null> {
 	const settings = await getGuildSettings(guildId);
 	if (!settings?.notifications_enabled) return null;
@@ -46,11 +53,13 @@ export async function getNewsChannelId(guildId: string): Promise<string | null> 
 
 export async function upsertGuildSettings(input: {
 	guildId: string;
+	airingChannelId?: string | null;
 	newsChannelId?: string | null;
 	notificationsEnabled?: boolean;
 }): Promise<GuildSettings> {
 	const payload = {
 		guild_id: input.guildId,
+		airing_channel_id: input.airingChannelId ?? null,
 		news_channel_id: input.newsChannelId ?? null,
 		notifications_enabled: input.notificationsEnabled ?? true
 	};
@@ -62,6 +71,14 @@ export async function upsertGuildSettings(input: {
 	await invalidateGuildSettings(input.guildId);
 
 	return data as GuildSettings;
+}
+
+export async function setAiringChannel(guildId: string, channelId: string | null) {
+	return upsertGuildSettings({
+		guildId,
+		airingChannelId: channelId,
+		notificationsEnabled: channelId ? true : false
+	});
 }
 
 export async function setNewsChannel(guildId: string, channelId: string | null) {
@@ -77,6 +94,7 @@ export async function setNotificationsEnabled(guildId: string, enabled: boolean)
 
 	return upsertGuildSettings({
 		guildId,
+		airingChannelId: existing?.airing_channel_id ?? null,
 		newsChannelId: existing?.news_channel_id ?? null,
 		notificationsEnabled: enabled
 	});

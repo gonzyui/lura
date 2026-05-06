@@ -9,7 +9,7 @@ import {
 	MessageFlags,
 	PermissionFlagsBits
 } from 'discord.js';
-import { setNewsChannel } from '../../lib/database/guildSettingsStore';
+import { setAiringChannel, setNewsChannel } from '../../lib/database/guildSettingsStore';
 
 @ApplyOptions<Command.Options>({
 	description: 'Configure the bot for this server.',
@@ -26,10 +26,17 @@ export class ConfigCommand extends Command {
 			defaultMemberPermissions: PermissionFlagsBits.ManageGuild,
 			options: [
 				{
-					name: 'news_channel',
+					name: 'airing_channel',
 					description: 'The channel where episode notifications will be sent.',
 					type: ApplicationCommandOptionType.Channel,
-					required: true,
+					required: false,
+					channelTypes: [ChannelType.GuildText, ChannelType.GuildAnnouncement]
+				},
+				{
+					name: 'news_channel',
+					description: 'The channel where anime news will be sent.',
+					type: ApplicationCommandOptionType.Channel,
+					required: false,
 					channelTypes: [ChannelType.GuildText, ChannelType.GuildAnnouncement]
 				}
 			]
@@ -46,39 +53,93 @@ export class ConfigCommand extends Command {
 
 		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-		const channel = interaction.options.getChannel('news_channel', true, [ChannelType.GuildText, ChannelType.GuildAnnouncement]);
+		const airingChannel = interaction.options.getChannel('airing_channel', false, [ChannelType.GuildText, ChannelType.GuildAnnouncement]);
+		const newsChannel = interaction.options.getChannel('news_channel', false, [ChannelType.GuildText, ChannelType.GuildAnnouncement]);
+
+		if (!airingChannel && !newsChannel) {
+			return interaction.editReply({
+				content: '> You must specify at least one channel (airing_channel or news_channel).'
+			});
+		}
 
 		const me = interaction.guild.members.me!;
-		const botPerms = channel.permissionsFor(me);
-		const missing: string[] = [];
+		const results: { name: string; success: boolean; channel?: string; error?: string }[] = [];
 
-		if (!botPerms?.has(PermissionFlagsBits.ViewChannel)) missing.push('View Channel');
-		if (!botPerms?.has(PermissionFlagsBits.SendMessages)) missing.push('Send Messages');
-		if (!botPerms?.has(PermissionFlagsBits.EmbedLinks)) missing.push('Embed Links');
+		if (airingChannel) {
+			const botPerms = airingChannel.permissionsFor(me);
+			const missing: string[] = [];
 
-		if (missing.length > 0) {
-			return interaction.editReply({
-				content: `> I'm missing the following permissions in ${channel}: **${missing.join(', ')}**.`
-			});
+			if (!botPerms?.has(PermissionFlagsBits.ViewChannel)) missing.push('View Channel');
+			if (!botPerms?.has(PermissionFlagsBits.SendMessages)) missing.push('Send Messages');
+			if (!botPerms?.has(PermissionFlagsBits.EmbedLinks)) missing.push('Embed Links');
+
+			if (missing.length > 0) {
+				results.push({
+					name: 'Airing Channel',
+					success: false,
+					error: `Missing: ${missing.join(', ')}`
+				});
+			} else {
+				try {
+					await setAiringChannel(interaction.guildId, airingChannel.id);
+					results.push({
+						name: 'Airing Channel',
+						success: true,
+						channel: airingChannel.name
+					});
+				} catch (error) {
+					this.container.logger.error('[Config] Failed to set airing channel:', error);
+					results.push({
+						name: 'Airing Channel',
+						success: false,
+						error: 'Database error'
+					});
+				}
+			}
 		}
 
-		try {
-			await setNewsChannel(interaction.guildId, channel.id);
+		if (newsChannel) {
+			const botPerms = newsChannel.permissionsFor(me);
+			const missing: string[] = [];
 
-			const embed = new EmbedBuilder()
-				.setColor(0xff1a64)
-				.setTitle('Configuration updated')
-				.setDescription(`Episode notifications will now be sent to ${channel}.`)
-				.setFooter({ text: `Guild ID: ${interaction.guildId}` })
-				.setTimestamp();
+			if (!botPerms?.has(PermissionFlagsBits.ViewChannel)) missing.push('View Channel');
+			if (!botPerms?.has(PermissionFlagsBits.SendMessages)) missing.push('Send Messages');
+			if (!botPerms?.has(PermissionFlagsBits.EmbedLinks)) missing.push('Embed Links');
 
-			return interaction.editReply({ embeds: [embed] });
-		} catch (error) {
-			this.container.logger.error('[Config] Failed to update guild settings:', error);
-
-			return interaction.editReply({
-				content: '> Failed to update the server configuration. Please try again later.'
-			});
+			if (missing.length > 0) {
+				results.push({
+					name: 'News Channel',
+					success: false,
+					error: `Missing: ${missing.join(', ')}`
+				});
+			} else {
+				try {
+					await setNewsChannel(interaction.guildId, newsChannel.id);
+					results.push({
+						name: 'News Channel',
+						success: true,
+						channel: newsChannel.name
+					});
+				} catch (error) {
+					this.container.logger.error('[Config] Failed to set news channel:', error);
+					results.push({
+						name: 'News Channel',
+						success: false,
+						error: 'Database error'
+					});
+				}
+			}
 		}
+
+		const successCount = results.filter((r) => r.success).length;
+
+		const embed = new EmbedBuilder()
+			.setColor(successCount > 0 ? 0xff1a64 : 0xff0000)
+			.setTitle(successCount > 0 ? 'Configuration updated' : 'Configuration failed')
+			.setDescription(results.map((r) => (r.success ? `✅ **${r.name}**: ${r.channel}` : `❌ **${r.name}**: ${r.error}`)).join('\n'))
+			.setFooter({ text: `Guild ID: ${interaction.guildId}` })
+			.setTimestamp();
+
+		return interaction.editReply({ embeds: [embed] });
 	}
 }

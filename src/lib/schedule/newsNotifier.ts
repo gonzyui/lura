@@ -1,0 +1,236 @@
+import { container } from '@sapphire/framework';
+import Parser from 'rss-parser';
+import { redis } from '../database/redis';
+import { getNewsChannelId } from '../database/guildSettingsStore';
+import { MessageFlags, type SendableChannels } from 'discord.js';
+
+const NEWS_FEED_URL = 'https://www.animenewsnetwork.com/all/rss.xml';
+const LAST_CHECKED_KEY = 'lura:news-notifier:lastChecked';
+const SENT_PREFIX = 'lura:news-notifier:sent:';
+const SENT_TTL_SECONDS = 60 * 60 * 24 * 30;
+
+type RSSItem = {
+	title?: string;
+	link?: string;
+	pubDate?: string;
+	content?: string;
+	contentSnippet?: string;
+	guid?: string;
+};
+
+export class NewsNotifier {
+	private isRunning = false;
+	private timeout: NodeJS.Timeout | null = null;
+	private parser = new Parser();
+	private lastChecked: number = Date.now();
+
+	private readonly pollInterval = 15 * 60 * 1000;
+
+	public start() {
+		if (this.timeout || this.isRunning) {
+			container.logger.warn('[NewsNotifier] Already running.');
+			return;
+		}
+		void this.loadLastChecked().then(() => this.tick());
+	}
+
+	public stop() {
+		if (this.timeout) {
+			clearTimeout(this.timeout);
+			this.timeout = null;
+		}
+		this.isRunning = false;
+		container.logger.info('[NewsNotifier] Stopped.');
+	}
+
+	private scheduleNext() {
+		const jitter = this.pollInterval * (0.9 + Math.random() * 0.2);
+		this.timeout = setTimeout(() => {
+			this.timeout = null;
+			void this.tick();
+		}, jitter);
+	}
+
+	private makeKey(item: RSSItem): string {
+		return item.guid || item.link || item.title || 'unknown';
+	}
+
+	private makeSentKey(item: RSSItem): string {
+		return `${SENT_PREFIX}${this.makeKey(item)}`;
+	}
+
+	private cleanContent(content?: string | null): string {
+		let text =
+			content
+				?.replace(/<[^>]*>/g, '')
+				.replace(/\s+/g, ' ')
+				.trim() || 'No summary available.';
+
+		if (text.length > 400) {
+			text = `${text.slice(0, 397)}...`;
+		}
+		return text;
+	}
+
+	private async loadLastChecked() {
+		try {
+			const saved = await redis.get(LAST_CHECKED_KEY);
+			if (saved) {
+				const parsed = Number(saved);
+				if (Number.isFinite(parsed) && parsed > 0) {
+					this.lastChecked = parsed;
+				}
+			}
+			container.logger.info(`[NewsNotifier] Loaded lastChecked: ${new Date(this.lastChecked).toISOString()}`);
+		} catch (err) {
+			container.logger.error('[NewsNotifier] Failed to load lastChecked:', err);
+		}
+	}
+
+	private async saveLastChecked(value: number) {
+		try {
+			await redis.set(LAST_CHECKED_KEY, String(value));
+		} catch (err) {
+			container.logger.error('[NewsNotifier] Failed to save lastChecked:', err);
+		}
+	}
+
+	private async tryMarkNewsSent(item: RSSItem): Promise<boolean> {
+		try {
+			const result = await redis.set(this.makeSentKey(item), '1', 'EX', SENT_TTL_SECONDS, 'NX');
+			return result === 'OK';
+		} catch (err) {
+			container.logger.error('[NewsNotifier] Failed to mark news sent:', err);
+			return false;
+		}
+	}
+
+	private async unmarkNewsSent(item: RSSItem) {
+		try {
+			await redis.del(this.makeSentKey(item));
+		} catch (err) {
+			container.logger.error('[NewsNotifier] Failed to unmark news:', err);
+		}
+	}
+
+	private async getNewsChannel(guildId: string): Promise<SendableChannels | null> {
+		const channelId = await getNewsChannelId(guildId);
+
+		if (!channelId) return null;
+
+		const cached = container.client.channels.cache.get(channelId);
+		if (cached?.isSendable()) return cached;
+
+		const fetched = await container.client.channels.fetch(channelId).catch(() => null);
+		if (!fetched?.isSendable()) {
+			container.logger.warn(`[NewsNotifier] News channel ${channelId} not found or not sendable (guild ${guildId}).`);
+			return null;
+		}
+		return fetched;
+	}
+
+	private buildMessage(item: RSSItem) {
+		const title = item.title || 'Untitled News';
+		const link = item.link || 'https://www.animenewsnetwork.com';
+		const summary = this.cleanContent(item.contentSnippet || item.content);
+		const pubDate = item.pubDate ? new Date(item.pubDate).toLocaleDateString() : 'Unknown date';
+
+		const content = [`## ${title}`, `**Published:** ${pubDate}`, ``, summary, ``, `[Read more](${link})`].join('\n');
+
+		return { title, content };
+	}
+
+	private async tick() {
+		if (this.isRunning) {
+			container.logger.warn('[NewsNotifier] Tick skipped: previous run still active.');
+			return;
+		}
+
+		this.isRunning = true;
+		container.logger.info('[NewsNotifier] Tick started.');
+
+		try {
+			const guildChannels = (
+				await Promise.all(
+					[...container.client.guilds.cache.values()].map(async (guild) => {
+						const channel = await this.getNewsChannel(guild.id);
+						return channel ? { guild, channel } : null;
+					})
+				)
+			).filter((entry): entry is { guild: typeof entry extends null ? never : NonNullable<typeof entry>['guild']; channel: SendableChannels } =>
+				Boolean(entry)
+			);
+
+			if (guildChannels.length === 0) {
+				container.logger.warn('[NewsNotifier] No configured news channels found.');
+				this.isRunning = false;
+				this.scheduleNext();
+				return;
+			}
+
+			const feed = await this.parser.parseURL(NEWS_FEED_URL);
+			const items = (feed.items || [])
+				.filter((item) => item.pubDate)
+				.sort((a, b) => {
+					const aDate = new Date(a.pubDate!).getTime();
+					const bDate = new Date(b.pubDate!).getTime();
+					return bDate - aDate; // newest first
+				});
+
+			container.logger.info(`[NewsNotifier] Feed returned ${items.length} items.`);
+
+			let sentCount = 0;
+
+			for (const item of items) {
+				const itemDate = new Date(item.pubDate!).getTime();
+
+				if (itemDate < this.lastChecked) {
+					continue;
+				}
+
+				const wasMarked = await this.tryMarkNewsSent(item);
+				if (!wasMarked) {
+					continue;
+				}
+
+				const { title, content } = this.buildMessage(item);
+
+				const sendResults = await Promise.allSettled(
+					guildChannels.map(({ guild, channel }) =>
+						channel
+							.send({
+								content,
+								flags: MessageFlags.SuppressEmbeds,
+								allowedMentions: { parse: [] }
+							})
+							.then(() => {
+								container.logger.info(`[NewsNotifier] Sent to guild ${guild.id}: ${title}`);
+								return guild.id;
+							})
+					)
+				);
+
+				const successCount = sendResults.filter((r) => r.status === 'fulfilled').length;
+
+				if (successCount === 0) {
+					container.logger.warn(`[NewsNotifier] All guilds failed for "${title}". Rolling back.`);
+					await this.unmarkNewsSent(item);
+					continue;
+				}
+
+				sentCount++;
+				this.lastChecked = Math.max(this.lastChecked, itemDate);
+			}
+
+			if (sentCount > 0) {
+				await this.saveLastChecked(this.lastChecked);
+				container.logger.info(`[NewsNotifier] Sent ${sentCount} news items.`);
+			}
+		} catch (error) {
+			container.logger.error('[NewsNotifier] Error fetching feed:', error);
+		} finally {
+			this.isRunning = false;
+			this.scheduleNext();
+		}
+	}
+}
