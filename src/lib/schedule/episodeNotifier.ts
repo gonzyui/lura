@@ -1,5 +1,5 @@
 import { container } from '@sapphire/framework';
-import AnilistClient from './aniClient';
+import AnilistClient from '../aniClient';
 import { AiringSort } from 'ani-client';
 import {
 	ActionRowBuilder,
@@ -17,8 +17,8 @@ import {
 	ThumbnailBuilder,
 	type SendableChannels
 } from 'discord.js';
-import { redis } from './database/redis';
-import { getNewsChannelId } from './database/guildSettingsStore';
+import { redis } from '../database/redis';
+import { getAiringChannelId } from '../database/guildSettingsStore';
 
 const LAST_CHECKED_KEY = 'lura:episode-notifier:lastChecked';
 const LAST_ACTIVITY_KEY = 'lura:episode-notifier:lastActivity';
@@ -139,8 +139,8 @@ export class EpisodeNotifier {
 		await redis.del(this.makeSentKey(schedule));
 	}
 
-	private async getNewsChannel(guildId: string) {
-		const channelId = await getNewsChannelId(guildId);
+	private async getAiringChannel(guildId: string) {
+		const channelId = await getAiringChannelId(guildId);
 
 		if (!channelId) return null;
 
@@ -149,7 +149,7 @@ export class EpisodeNotifier {
 
 		const fetched = await container.client.channels.fetch(channelId).catch(() => null);
 		if (!fetched?.isSendable()) {
-			container.logger.warn(`[AniClient] News channel ${channelId} not found or not sendable (guild ${guildId}).`);
+			container.logger.warn(`[AniClient] Airing channel ${channelId} not found or not sendable (guild ${guildId}).`);
 			return null;
 		}
 		return fetched;
@@ -228,7 +228,7 @@ export class EpisodeNotifier {
 			const guildChannels = (
 				await Promise.all(
 					[...container.client.guilds.cache.values()].map(async (guild) => {
-						const channel = await this.getNewsChannel(guild.id);
+						const channel = await this.getAiringChannel(guild.id);
 						return channel ? { guild, channel } : null;
 					})
 				)
@@ -237,7 +237,7 @@ export class EpisodeNotifier {
 			);
 
 			if (guildChannels.length === 0) {
-				container.logger.warn('[AniClient] No configured news channels found.');
+				container.logger.warn('[AniClient] No configured airing channels found.');
 				return;
 			}
 
