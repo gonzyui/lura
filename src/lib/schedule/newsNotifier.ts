@@ -152,7 +152,7 @@ export class NewsNotifier {
 			.setTitle(title)
 			.setDescription(summary.length > 4096 ? summary.substring(0, 4093) + '...' : summary)
 			.setURL(link)
-			.setColor(0xFF6B6B)
+			.setColor(0xff6b6b)
 			.setFooter({ text: `Published: ${pubDate}` })
 			.setTimestamp(item.pubDate ? new Date(item.pubDate).getTime() : Date.now());
 
@@ -165,7 +165,6 @@ export class NewsNotifier {
 
 		return embed;
 	}
-
 
 	private async tick() {
 		if (this.isRunning) {
@@ -268,5 +267,4 @@ export class NewsNotifier {
 			this.scheduleNext();
 		}
 	}
-
 }
