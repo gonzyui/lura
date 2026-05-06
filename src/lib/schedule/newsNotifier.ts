@@ -2,7 +2,7 @@ import { container } from '@sapphire/framework';
 import Parser from 'rss-parser';
 import { redis } from '../database/redis';
 import { getNewsChannelId } from '../database/guildSettingsStore';
-import { EmbedBuilder, MessageFlags, type SendableChannels } from 'discord.js';
+import { EmbedBuilder, type SendableChannels } from 'discord.js';
 
 const NEWS_FEED_URL = 'https://www.animenewsnetwork.com/all/rss.xml';
 const LAST_CHECKED_KEY = 'lura:news-notifier:lastChecked';
@@ -229,7 +229,6 @@ export class NewsNotifier {
 						channel
 							.send({
 								embeds: [embed],
-								flags: MessageFlags.SuppressEmbeds,
 								allowedMentions: { parse: [] }
 							})
 							.then(() => {
