@@ -38,10 +38,11 @@ export const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
 let guildSettingsChannel: RealtimeChannel | null = null;
 let reconnectAttempts = 0;
 let reconnectTimer: NodeJS.Timeout | null = null;
+let isShuttingDown = false;
 const MAX_RECONNECT_DELAY = 60_000;
 
 function scheduleReconnect() {
-	if (reconnectTimer) return;
+	if (reconnectTimer || isShuttingDown) return;
 
 	const delay = Math.min(1_000 * 2 ** reconnectAttempts, MAX_RECONNECT_DELAY);
 	reconnectAttempts++;
@@ -92,8 +93,7 @@ function subscribeGuildSettings() {
 					break;
 
 				case REALTIME_SUBSCRIBE_STATES.CLOSED:
-					container.logger.warn('[Supabase] Channel closed.');
-					scheduleReconnect();
+					container.logger.debug('[Supabase] Channel closed.');
 					break;
 			}
 		});
@@ -102,6 +102,7 @@ function subscribeGuildSettings() {
 subscribeGuildSettings();
 
 process.on('SIGTERM', () => {
+	isShuttingDown = true;
 	if (reconnectTimer) clearTimeout(reconnectTimer);
 	if (guildSettingsChannel) {
 		supabase.removeChannel(guildSettingsChannel).catch(() => {});
