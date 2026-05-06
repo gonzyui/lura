@@ -79,11 +79,24 @@ export class NewsNotifier {
 				const parsed = Number(saved);
 				if (Number.isFinite(parsed) && parsed > 0) {
 					this.lastChecked = parsed;
+					container.logger.info(`[NewsNotifier] Loaded lastChecked from Redis: ${new Date(this.lastChecked).toISOString()}`);
+					return;
 				}
 			}
-			container.logger.info(`[NewsNotifier] Loaded lastChecked: ${new Date(this.lastChecked).toISOString()}`);
+
+			const today = new Date();
+			today.setHours(0, 0, 0, 0);
+			this.lastChecked = today.getTime();
+
+			await this.saveLastChecked(this.lastChecked);
+			container.logger.info(
+				`[NewsNotifier] First run: initialized lastChecked to today at 00:00 UTC: ${new Date(this.lastChecked).toISOString()}`
+			);
 		} catch (err) {
 			container.logger.error('[NewsNotifier] Failed to load lastChecked:', err);
+			const today = new Date();
+			today.setHours(0, 0, 0, 0);
+			this.lastChecked = today.getTime();
 		}
 	}
 
