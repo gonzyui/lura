@@ -1,26 +1,12 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
-import {
-	ApplicationCommandOptionType,
-	ApplicationIntegrationType,
-	ContainerBuilder,
-	InteractionContextType,
-	MediaGalleryBuilder,
-	MediaGalleryItemBuilder,
-	MessageFlags,
-	PermissionFlagsBits,
-	SectionBuilder,
-	SeparatorBuilder,
-	SeparatorSpacingSize,
-	TextDisplayBuilder,
-	ThumbnailBuilder
-} from 'discord.js';
+import { ApplicationCommandOptionType, ApplicationIntegrationType, InteractionContextType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import AnilistClient from '../../lib/aniClient';
 import { MediaSort, MediaType } from 'ani-client';
-import { stripHtml, formatDate, truncate } from '../../lib/utils/formatters';
+import { buildMediaContainer, buildMediaListContainer } from '../../lib/utils/mediaRenderer';
 
 @ApplyOptions<Command.Options>({
-	description: 'Shows informations about manga.',
+	description: 'Search a manga, or browse trending / top-rated.',
 	requiredClientPermissions: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.AttachFiles],
 	cooldownDelay: 3000,
 	cooldownLimit: 1
@@ -34,84 +20,75 @@ export class MangaCommand extends Command {
 			contexts: [InteractionContextType.Guild],
 			options: [
 				{
-					name: 'name',
-					description: 'Name of the manga.',
+					name: 'query',
+					description: 'Manga name, or "trending" / "top".',
 					type: ApplicationCommandOptionType.String,
-					required: true
+					required: true,
+					autocomplete: true
 				}
 			]
 		});
 	}
 
+	public override async autocompleteRun(interaction: Command.AutocompleteInteraction) {
+		const focused = interaction.options.getFocused().toLowerCase();
+		const suggestions = [
+			{ name: '🔥 Trending', value: 'trending' },
+			{ name: '🏆 Top Rated', value: 'top' }
+		].filter((s) => s.name.toLowerCase().includes(focused) || s.value.includes(focused));
+
+		return interaction.respond(suggestions);
+	}
+
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
 		await interaction.deferReply();
 
-		const name = interaction.options.getString('name', true);
+		const query = interaction.options.getString('query', true).trim();
+		const client = AnilistClient.getInstance().getAniClient();
+		const lower = query.toLowerCase();
 
-		const search = await AnilistClient.getInstance()
-			.getAniClient()
-			.searchMedia({
-				query: name,
+		if (lower === 'trending') {
+			const search = await client.searchMedia({
 				type: MediaType.MANGA,
-				sort: [MediaSort.POPULARITY_DESC]
+				sort: [MediaSort.TRENDING_DESC]
 			});
+			const list = search?.results ?? [];
+			if (!list.length) return interaction.editReply({ content: '> No trending manga found.' });
 
+			return interaction.editReply({
+				flags: MessageFlags.IsComponentsV2,
+				components: [buildMediaListContainer(list, MediaType.MANGA, '🔥 Trending Manga')],
+				allowedMentions: { parse: [] }
+			});
+		}
+
+		if (lower === 'top') {
+			const search = await client.searchMedia({
+				type: MediaType.MANGA,
+				sort: [MediaSort.SCORE_DESC]
+			});
+			const list = search?.results ?? [];
+			if (!list.length) return interaction.editReply({ content: '> No top manga found.' });
+
+			return interaction.editReply({
+				flags: MessageFlags.IsComponentsV2,
+				components: [buildMediaListContainer(list, MediaType.MANGA, '🏆 Top Manga')],
+				allowedMentions: { parse: [] }
+			});
+		}
+
+		// Search by name (default)
+		const search = await client.searchMedia({
+			query,
+			type: MediaType.MANGA,
+			sort: [MediaSort.POPULARITY_DESC]
+		});
 		const media = search?.results?.[0];
-
-		if (!media) {
-			return interaction.editReply({ content: '> No manga found.' });
-		}
-
-		const title = media.title.romaji || media.title.english || media.title.native || 'Unknown title';
-		const description = truncate(stripHtml(media.description), 700);
-		const genres = media.genres?.join(', ') || 'Unknown';
-
-		const quickFacts = [
-			`**Format:** ${media.format ?? 'Unknown'}`,
-			`**Status:** ${media.status ?? 'Unknown'}`,
-			`**Chapters:** ${media.chapters ?? 'Unknown'}`,
-			`**Volumes:** ${media.volumes ?? 'Unknown'}`,
-			`**Source:** ${media.source ?? 'Unknown'}`,
-			`**Score:** ${media.averageScore ?? 'Unknown'}`,
-			`**Mean Score:** ${media.meanScore ?? 'Unknown'}`,
-			`**Popularity:** ${media.popularity ?? 'Unknown'}`,
-			`**Favorites:** ${media.favourites ?? 'Unknown'}`,
-			`**Start Date:** ${formatDate(media.startDate)}`,
-			`**End Date:** ${formatDate(media.endDate)}`,
-			`**Genres:** ${genres}`,
-			media.siteUrl ? `**AniList:** ${media.siteUrl}` : null
-		]
-			.filter(Boolean)
-			.join('\n');
-
-		const container = new ContainerBuilder().setAccentColor(0xff1a64);
-
-		container.addSectionComponents(
-			new SectionBuilder()
-				.addTextDisplayComponents(
-					new TextDisplayBuilder().setContent(`# ${title}`),
-					new TextDisplayBuilder().setContent(description || '*No description available.*')
-				)
-				.setThumbnailAccessory(
-					new ThumbnailBuilder()
-						.setURL(media.coverImage?.extraLarge || media.coverImage?.large || '')
-						.setDescription(`Cover image of ${title}`)
-				)
-		);
-
-		if (media.bannerImage) {
-			container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-			container.addMediaGalleryComponents(
-				new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(media.bannerImage).setDescription(`Banner image of ${title}`))
-			);
-		}
-
-		container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-		container.addTextDisplayComponents(new TextDisplayBuilder().setContent(quickFacts));
+		if (!media) return interaction.editReply({ content: '> No manga found.' });
 
 		return interaction.editReply({
 			flags: MessageFlags.IsComponentsV2,
-			components: [container],
+			components: [buildMediaContainer(media, MediaType.MANGA)],
 			allowedMentions: { parse: [] }
 		});
 	}
