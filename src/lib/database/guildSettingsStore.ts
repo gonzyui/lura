@@ -73,19 +73,6 @@ async function mergeAndUpsert(
 	return data as GuildSettings;
 }
 
-export async function upsertGuildSettings(input: {
-	guildId: string;
-	airingChannelId?: string | null;
-	newsChannelId?: string | null;
-	notificationsEnabled?: boolean;
-}): Promise<GuildSettings> {
-	return mergeAndUpsert(input.guildId, {
-		airing_channel_id: input.airingChannelId,
-		news_channel_id: input.newsChannelId,
-		notifications_enabled: input.notificationsEnabled
-	});
-}
-
 export async function setAiringChannel(guildId: string, channelId: string | null): Promise<GuildSettings> {
 	return mergeAndUpsert(guildId, {
 		airing_channel_id: channelId,
