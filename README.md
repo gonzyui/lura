@@ -6,18 +6,16 @@ Lura is a Discord bot focused on anime, manga, characters, package lookup, repos
 
 ## Features
 
-- Anime lookup with rich cards.
-- Manga lookup with detailed metadata.
-- Character lookup with profile-style responses.
-- GitHub repository lookup.
-- npm package lookup.
-- Help command generated from loaded commands.
-- Release notifications for newly aired anime episodes.
-- Modern Discord UI with embeds and display components where relevant.
+- **Anime & Manga** — Lookup with rich cards and detailed metadata.
+- **Character profiles** — Profile-style responses with comprehensive information.
+- **Developer tools** — GitHub repository and npm package lookup.
+- **Notifications** — Real-time release notifications for newly aired anime episodes and anime news feeds.
+- **Server utilities** — Configurable notification channels and help command.
+- **Modern Discord UI** — Embeds and interactive components.
 
 ## Commands
 
-### Anime
+### Anime & Manga
 
 - `/anime` — Show information about an anime.
 - `/manga` — Show information about a manga.
@@ -27,6 +25,14 @@ Lura is a Discord bot focused on anime, manga, characters, package lookup, repos
 
 - `/github` — Show information about a GitHub repository.
 - `/npm` — Show information about an npm package.
+
+### Server Configuration
+
+- `/config view` — Display current notification channel settings.
+- `/config set airing` — Set the anime airing notification channel.
+- `/config set news` — Set the anime news notification channel.
+- `/config reset airing` — Remove the airing notification channel.
+- `/config reset news` — Remove the news notification channel.
 
 ### Utility
 
@@ -38,8 +44,9 @@ Lura is a Discord bot focused on anime, manga, characters, package lookup, repos
 - [Sapphire Framework](https://www.sapphirejs.dev/)
 - [discord.js](https://discord.js.org/)
 - [ani-client](https://ani-client.js.org/)
+- [Supabase](https://supabase.com/) — Database & Realtime
+- [Redis](https://redis.io/) — Caching & Realtime invalidation
 - [Docker](https://www.docker.com/)
-- [Redis](https://redis.io/)
 
 ## Requirements
 
@@ -48,6 +55,7 @@ For local development without Docker:
 - Node.js 24
 - pnpm 10
 - Redis
+- Supabase project
 
 For Docker:
 
@@ -61,83 +69,65 @@ Create a `.env` file at the root of the project. Do **not** commit this file.
 Example:
 
 ```env
-DISCORD_TOKEN=
-WELCOME_CHANNEL=
-REDIS_URL=
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
+DISCORD_TOKEN=your_token_here
+WELCOME_CHANNEL=channel_id_here
+REDIS_URL=redis://localhost:6379
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here (non anon key)
 ```
 
-You should also keep a `.env.example` in the repository for documentation, and add `.env` to `.gitignore` so secrets never end up in the public repository.
+See `.env.example` for a template. Always add `.env` to `.gitignore`.
 
 ## Supabase setup
 
-This bot requires a Supabase project for its database.
+This bot requires a Supabase project for guild settings and realtime notifications.
 
 ### 1. Create a Supabase project
 
 Create a new project in the [Supabase dashboard](https://supabase.com/dashboard). During setup, choose your organization, project name, database password, and region.
 
-### 2. Get the project URL and API keys
+### 2. Get credentials
 
 In your Supabase project:
 
-- Open **Project Settings**
-- Open **API**
-- Copy:
-  - **Project URL**
-  - **service_role key**
-
-Use them in your `.env` file:
-
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-
-The `service_role` key is an admin key and must stay private on the server only.
-
-### 3. Get the database connection string
-
-In the Supabase dashboard, open your project and get the Postgres connection string from the database connection settings. The connection string uses the standard PostgreSQL URI format and should be added as `SUPABASE_URL` in your `.env` file.
-
-Example format:
+- Open Project Settings → API
+- Copy Project URL and service_role key
+- Add to .env:
 
 ```env
-SUPABASE_URL=postgresql://postgres:your-password@db.your-project-ref.supabase.co:5432/postgres
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ```
 
-If Supabase shows a password placeholder, replace it with the database password you chose when creating the project.
+> The service_role key is an admin key—keep it private and never commit it.
 
-### 4. Run your database setup
+### 3. Run migrations
 
-If this project includes SQL migrations, schema files, or setup scripts, run them before starting the bot. For example, this may involve executing SQL in the Supabase SQL editor or running a migration command from the project locally.
+The bot uses Supabase with Realtime subscriptions. Ensure your database schema is set up by running SQL migrations in the Supabase SQL editor (if migrations are included in this repository).
 
-### 5. Keep secrets private
+### 4. Enable Realtime
 
-Never commit your real Supabase keys to the repository. For public repositories, keep the real `.env` only on your machine or server, and commit only a `.env.example` template.
+In your Supabase project:
 
-Do not expose `SUPABASE_SERVICE_ROLE_KEY` in frontend code, public configs, or client-side environments.
+- Go to Replication settings
+- Enable realtime for the `guild_settings` table
+
+This allows the bot to receive instant updates when config changes.
 
 ## Local development
 
-Install dependencies:
-
+- Install dependencies:
 ```bash
 pnpm install
 ```
-
-Run the build:
-
+- Run the build:
 ```bash
 pnpm build
 ```
-
-Start the bot locally:
-
+- Start the bot locally (Redis must be running):
 ```bash
 pnpm start
 ```
-
-If your local setup uses Redis outside Docker, make sure Redis is running before starting the bot.
 
 ## Docker
 
@@ -146,38 +136,25 @@ Lura can run with Docker Compose using two services:
 - `lura` for the Discord bot
 - `lura-redis` for Redis persistence and caching
 
-Start the stack:
-
+- Start the stack:
 ```bash
 docker compose up -d --build
 ```
-
-View bot logs:
-
+- View bot logs:
 ```bash
 docker compose logs --tail 100 -f lura
 ```
-
-Stop the stack:
-
+- Stop the stack:
 ```bash
 docker compose down
 ```
-
-Rebuild after code changes:
-
+- Rebuild after code changes:
 ```bash
 docker compose up -d --build
 ```
 
-If you keep your `.env` file on the server, Docker Compose will inject those variables into the container at runtime rather than baking them into the image.
-
-## Docker notes
-
-- The repository can stay public while secrets remain only in the local `.env` file on your machine or server.
-- Redis data should be stored in a Docker volume so it survives container restarts.
-- A custom Docker image is useful for reproducible deployments and cleaner production setups with TypeScript and pnpm.
+> Note: The repository can stay public while secrets remain only in the local .env file on your machine or server.
 
 ## License
 
-Licensed under the [MIT License](LICENSE).
+- [MIT License](LICENSE)
