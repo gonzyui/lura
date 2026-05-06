@@ -1,14 +1,7 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { ButtonInteraction } from 'discord.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } from 'discord.js';
-
-function capitalize(str: string) {
-	return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
-function formatCategory(category: string) {
-	return category.split(' > ').map(capitalize).join(' > ');
-}
+import { formatCategory } from '../lib/utils/formatters';
 
 export class HelpButtonsHandler extends InteractionHandler {
 	public constructor(ctx: InteractionHandler.LoaderContext, options: InteractionHandler.Options) {
