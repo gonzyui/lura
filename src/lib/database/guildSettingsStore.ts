@@ -51,58 +51,58 @@ export async function getNewsChannelId(guildId: string): Promise<string | null> 
 	return settings.news_channel_id;
 }
 
-export async function upsertGuildSettings(input: {
-	guildId: string;
-	airingChannelId?: string | null;
-	newsChannelId?: string | null;
-	notificationsEnabled?: boolean;
-}): Promise<GuildSettings> {
+async function mergeAndUpsert(
+	guildId: string,
+	updates: Partial<Omit<GuildSettings, 'guild_id' | 'created_at' | 'updated_at'>>
+): Promise<GuildSettings> {
+	const existing = await getGuildSettings(guildId);
+
 	const payload = {
-		guild_id: input.guildId,
-		airing_channel_id: input.airingChannelId ?? null,
-		news_channel_id: input.newsChannelId ?? null,
-		notifications_enabled: input.notificationsEnabled ?? true
+		guild_id: guildId,
+		airing_channel_id: updates.airing_channel_id !== undefined ? updates.airing_channel_id : (existing?.airing_channel_id ?? null),
+		news_channel_id: updates.news_channel_id !== undefined ? updates.news_channel_id : (existing?.news_channel_id ?? null),
+		notifications_enabled: updates.notifications_enabled !== undefined ? updates.notifications_enabled : (existing?.notifications_enabled ?? true)
 	};
 
 	const { data, error } = await supabase.from('guild_settings').upsert(payload, { onConflict: 'guild_id' }).select().single();
 
 	if (error) throw error;
 
-	await invalidateGuildSettings(input.guildId);
+	await invalidateGuildSettings(guildId);
 
 	return data as GuildSettings;
 }
 
-export async function setAiringChannel(guildId: string, channelId: string | null) {
-	const existing = await getGuildSettings(guildId);
-
-	return upsertGuildSettings({
-		guildId,
-		airingChannelId: channelId,
-		newsChannelId: existing?.news_channel_id ?? null,
-		notificationsEnabled: channelId ? true : false
+export async function upsertGuildSettings(input: {
+	guildId: string;
+	airingChannelId?: string | null;
+	newsChannelId?: string | null;
+	notificationsEnabled?: boolean;
+}): Promise<GuildSettings> {
+	return mergeAndUpsert(input.guildId, {
+		airing_channel_id: input.airingChannelId,
+		news_channel_id: input.newsChannelId,
+		notifications_enabled: input.notificationsEnabled
 	});
 }
 
-export async function setNewsChannel(guildId: string, channelId: string | null) {
-	const existing = await getGuildSettings(guildId);
-
-	return upsertGuildSettings({
-		guildId,
-		airingChannelId: existing?.airing_channel_id ?? null,
-		newsChannelId: channelId,
-		notificationsEnabled: channelId ? true : false
+export async function setAiringChannel(guildId: string, channelId: string | null): Promise<GuildSettings> {
+	return mergeAndUpsert(guildId, {
+		airing_channel_id: channelId,
+		notifications_enabled: channelId ? true : false
 	});
 }
 
-export async function setNotificationsEnabled(guildId: string, enabled: boolean) {
-	const existing = await getGuildSettings(guildId);
+export async function setNewsChannel(guildId: string, channelId: string | null): Promise<GuildSettings> {
+	return mergeAndUpsert(guildId, {
+		news_channel_id: channelId,
+		notifications_enabled: channelId ? true : false
+	});
+}
 
-	return upsertGuildSettings({
-		guildId,
-		airingChannelId: existing?.airing_channel_id ?? null,
-		newsChannelId: existing?.news_channel_id ?? null,
-		notificationsEnabled: enabled
+export async function setNotificationsEnabled(guildId: string, enabled: boolean): Promise<GuildSettings> {
+	return mergeAndUpsert(guildId, {
+		notifications_enabled: enabled
 	});
 }
 
