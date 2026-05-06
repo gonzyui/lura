@@ -2,7 +2,7 @@ import { container } from '@sapphire/framework';
 import Parser from 'rss-parser';
 import { redis } from '../database/redis';
 import { getNewsChannelId } from '../database/guildSettingsStore';
-import { MessageFlags, type SendableChannels } from 'discord.js';
+import { EmbedBuilder, MessageFlags, type SendableChannels } from 'discord.js';
 
 const NEWS_FEED_URL = 'https://www.animenewsnetwork.com/all/rss.xml';
 const LAST_CHECKED_KEY = 'lura:news-notifier:lastChecked';
@@ -142,16 +142,30 @@ export class NewsNotifier {
 		return fetched;
 	}
 
-	private buildMessage(item: RSSItem) {
+	private buildMessage(item: RSSItem): EmbedBuilder {
 		const title = item.title || 'Untitled News';
 		const link = item.link || 'https://www.animenewsnetwork.com';
 		const summary = this.cleanContent(item.contentSnippet || item.content);
 		const pubDate = item.pubDate ? new Date(item.pubDate).toLocaleDateString() : 'Unknown date';
 
-		const content = [`## ${title}`, `**Published:** ${pubDate}`, ``, summary, ``, `[Read more](${link})`].join('\n');
+		const embed = new EmbedBuilder()
+			.setTitle(title)
+			.setDescription(summary.length > 4096 ? summary.substring(0, 4093) + '...' : summary)
+			.setURL(link)
+			.setColor(0xFF6B6B)
+			.setFooter({ text: `Published: ${pubDate}` })
+			.setTimestamp(item.pubDate ? new Date(item.pubDate).getTime() : Date.now());
 
-		return { title, content };
+		if (item.content) {
+			const imgMatch = item.content.match(/<img[^>]+src=["']([^"']+)["']/);
+			if (imgMatch?.[1]) {
+				embed.setImage(imgMatch[1]);
+			}
+		}
+
+		return embed;
 	}
+
 
 	private async tick() {
 		if (this.isRunning) {
@@ -187,37 +201,40 @@ export class NewsNotifier {
 				.sort((a, b) => {
 					const aDate = new Date(a.pubDate!).getTime();
 					const bDate = new Date(b.pubDate!).getTime();
-					return bDate - aDate; // newest first
+					return bDate - aDate;
 				});
 
 			container.logger.info(`[NewsNotifier] Feed returned ${items.length} items.`);
 
 			let sentCount = 0;
+			let maxDate = this.lastChecked;
 
 			for (const item of items) {
 				const itemDate = new Date(item.pubDate!).getTime();
 
 				if (itemDate < this.lastChecked) {
+					container.logger.debug(`[NewsNotifier] Skipping old item: "${item.title}" (${new Date(itemDate).toISOString()})`);
 					continue;
 				}
 
 				const wasMarked = await this.tryMarkNewsSent(item);
 				if (!wasMarked) {
+					container.logger.debug(`[NewsNotifier] Already sent: "${item.title}"`);
 					continue;
 				}
 
-				const { title, content } = this.buildMessage(item);
+				const embed = this.buildMessage(item);
 
 				const sendResults = await Promise.allSettled(
 					guildChannels.map(({ guild, channel }) =>
 						channel
 							.send({
-								content,
+								embeds: [embed],
 								flags: MessageFlags.SuppressEmbeds,
 								allowedMentions: { parse: [] }
 							})
 							.then(() => {
-								container.logger.info(`[NewsNotifier] Sent to guild ${guild.id}: ${title}`);
+								container.logger.info(`[NewsNotifier] Sent to guild ${guild.id}: ${item.title}`);
 								return guild.id;
 							})
 					)
@@ -226,17 +243,22 @@ export class NewsNotifier {
 				const successCount = sendResults.filter((r) => r.status === 'fulfilled').length;
 
 				if (successCount === 0) {
-					container.logger.warn(`[NewsNotifier] All guilds failed for "${title}". Rolling back.`);
+					container.logger.warn(`[NewsNotifier] All guilds failed for "${item.title}". Rolling back.`);
 					await this.unmarkNewsSent(item);
 					continue;
 				}
 
 				sentCount++;
-				this.lastChecked = Math.max(this.lastChecked, itemDate);
+				maxDate = Math.max(maxDate, itemDate);
+			}
+
+			if (maxDate > this.lastChecked) {
+				this.lastChecked = maxDate;
+				await this.saveLastChecked(this.lastChecked);
+				container.logger.info(`[NewsNotifier] Updated lastChecked to ${new Date(this.lastChecked).toISOString()}`);
 			}
 
 			if (sentCount > 0) {
-				await this.saveLastChecked(this.lastChecked);
 				container.logger.info(`[NewsNotifier] Sent ${sentCount} news items.`);
 			}
 		} catch (error) {
@@ -246,4 +268,5 @@ export class NewsNotifier {
 			this.scheduleNext();
 		}
 	}
+
 }
