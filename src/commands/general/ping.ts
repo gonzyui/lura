@@ -16,9 +16,9 @@ export class PingCommand extends Command {
 	}
 
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
-		const pingMessage = await interaction.reply({ content: '> Ping?', fetchReply: true });
+		const { resource } = await interaction.reply({ content: '> Ping?', withResponse: true });
 
-		const apiLatency = pingMessage.createdTimestamp - interaction.createdTimestamp;
+		const apiLatency = resource!.message!.createdTimestamp - interaction.createdTimestamp;
 		const wsLatency = Math.round(this.container.client.ws.ping);
 
 		return interaction.editReply({
