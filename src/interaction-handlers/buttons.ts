@@ -1,6 +1,6 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
-import type { ButtonInteraction } from 'discord.js';
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } from 'discord.js';
+import type { ActionRow, ButtonComponent, ButtonInteraction } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder, MessageFlags } from 'discord.js';
 import { formatCategory } from '../lib/utils/formatters';
 
 export class HelpButtonsHandler extends InteractionHandler {
@@ -14,14 +14,34 @@ export class HelpButtonsHandler extends InteractionHandler {
 	public override parse(interaction: ButtonInteraction) {
 		if (!interaction.customId.startsWith('help-category:')) return this.none();
 
-		const [, userId, ...categoryParts] = interaction.customId.split(':');
+		const [, userId, expiresAt, ...categoryParts] = interaction.customId.split(':');
 		const category = categoryParts.join(':');
-		if (!userId || !category) return this.none();
+		if (!userId || !expiresAt || !category) return this.none();
 
-		return this.some({ userId, category });
+		return this.some({ userId, expiresAt: Number(expiresAt), category });
 	}
 
-	public override async run(interaction: ButtonInteraction, { userId, category }: { userId: string; category: string }) {
+	public override async run(
+		interaction: ButtonInteraction,
+		{ userId, expiresAt, category }: { userId: string; expiresAt: number; category: string }
+	) {
+		if (Date.now() > expiresAt) {
+			const disabledRows = (interaction.message.components as ActionRow<ButtonComponent>[]).map((row) =>
+				new ActionRowBuilder<ButtonBuilder>().addComponents(
+					row.components
+						.filter((btn): btn is ButtonComponent => btn.type === ComponentType.Button)
+						.map((btn) => ButtonBuilder.from(btn).setDisabled(true))
+				)
+			);
+
+			await interaction.update({ components: disabledRows });
+
+			return interaction.followUp({
+				content: '> This help menu has expired. Use `/help` again.',
+				flags: MessageFlags.Ephemeral
+			});
+		}
+
 		if (interaction.user.id !== userId) {
 			return interaction.reply({
 				content: '> This help menu is not for you.',
@@ -58,7 +78,7 @@ export class HelpButtonsHandler extends InteractionHandler {
 
 		const buttons = categories.slice(0, 5).map((entry) =>
 			new ButtonBuilder()
-				.setCustomId(`help-category:${userId}:${entry}`)
+				.setCustomId(`help-category:${userId}:${expiresAt}:${entry}`)
 				.setLabel(formatCategory(entry))
 				.setStyle(entry === category ? ButtonStyle.Primary : ButtonStyle.Secondary)
 		);

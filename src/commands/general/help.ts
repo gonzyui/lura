@@ -70,7 +70,6 @@ export class HelpCommand extends Command {
 			});
 		}
 
-		// --- Dashboard par défaut ---
 		const client = this.container.client;
 
 		const ram = memoryUsage().heapUsed;
@@ -112,12 +111,13 @@ export class HelpCommand extends Command {
 			.setFooter({ text: `${commands.length} commands available` })
 			.setTimestamp();
 
-		// Aligné avec le helper : customId = `help-category:${userId}:${rawCategory}`
+		const expiresAt = Date.now() + 60_000;
+
 		const buttons = categories
 			.slice(0, 5)
 			.map((category) =>
 				new ButtonBuilder()
-					.setCustomId(`help-category:${interaction.user.id}:${category}`)
+					.setCustomId(`help-category:${interaction.user.id}:${expiresAt}:${category}`)
 					.setLabel(formatCategory(category))
 					.setStyle(ButtonStyle.Secondary)
 			);
