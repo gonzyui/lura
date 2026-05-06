@@ -8,8 +8,16 @@ import {
 	ButtonStyle,
 	EmbedBuilder,
 	InteractionContextType,
-	MessageFlags
+	MessageFlags,
+	version as djsVersion
 } from 'discord.js';
+import { version as sapphireVersion } from '@sapphire/framework';
+import { memoryUsage, cpuUsage } from 'node:process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { formatBytes, formatCategory } from '../../lib/utils/formatters';
+
+const { version: botVersion } = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8'));
 
 @ApplyOptions<Command.Options>({
 	description: 'Shows help for all commands or a specific command.'
@@ -46,7 +54,10 @@ export class HelpCommand extends Command {
 				});
 			}
 
-			const category = command.fullCategory.length > 0 ? command.fullCategory.join(' > ') : 'Other';
+			const category =
+				command.fullCategory.length > 0
+					? formatCategory(command.fullCategory.join(' > '))
+					: 'Other';
 
 			const embed = new EmbedBuilder()
 				.setColor(0xff1a64)
@@ -56,7 +67,7 @@ export class HelpCommand extends Command {
 					{ name: 'Category', value: category, inline: true },
 					{ name: 'Usage', value: `\`/${command.name}\``, inline: true }
 				)
-				.setFooter({ text: 'Lura - Help' })
+				.setFooter({ text: 'Lura — Help' })
 				.setTimestamp();
 
 			return interaction.reply({
@@ -65,41 +76,54 @@ export class HelpCommand extends Command {
 			});
 		}
 
-		const commands = [...commandStore.values()]
-			.filter((cmd) => cmd.name !== this.name)
-			.sort((a, b) => a.name.localeCompare(b.name));
+		// --- Dashboard par défaut ---
+		const client = this.container.client;
 
-		const grouped = commands.reduce<Map<string, Command[]>>((map, cmd) => {
-			const category = cmd.fullCategory.length > 0 ? cmd.fullCategory.join(' > ') : 'Other';
-			if (!map.has(category)) map.set(category, []);
-			map.get(category)!.push(cmd);
-			return map;
-		}, new Map());
+		const ram = memoryUsage().heapUsed;
+		const cpuStart = cpuUsage();
+		await new Promise((r) => setTimeout(r, 100));
+		const cpuEnd = cpuUsage(cpuStart);
+		const cpuPercent = ((cpuEnd.user + cpuEnd.system) / 1e6 / 0.1 * 100).toFixed(1);
+
+		const guilds = client.guilds.cache.size;
+		const channels = client.channels.cache.size;
+
+		const commands = [...commandStore.values()].filter((cmd) => cmd.name !== this.name);
+
+		const grouped = new Map<string, Command[]>();
+		for (const cmd of commands) {
+			const key = cmd.fullCategory.length > 0 ? cmd.fullCategory.join(' > ') : 'Other';
+			if (!grouped.has(key)) grouped.set(key, []);
+			grouped.get(key)!.push(cmd);
+		}
 
 		const categories = [...grouped.keys()].sort((a, b) => a.localeCompare(b));
-		const currentCategory = categories[0] ?? 'Other';
-		const currentCommands = grouped.get(currentCategory) ?? [];
 
 		const embed = new EmbedBuilder()
 			.setColor(0xff1a64)
-			.setTitle('Help Menu')
-			.setDescription(`Category: **${currentCategory}**`)
-			.addFields({
-				name: currentCategory,
-				value:
-					currentCommands
-						.map((cmd) => `**/${cmd.name}** — ${cmd.description || 'No description provided.'}`)
-						.join('\n')
-						.slice(0, 1024) || 'No commands available.'
-			})
-			.setFooter({ text: `Total commands: ${commands.length}` })
+			.setTitle('Lura — Dashboard')
+			.setDescription('Select a category below to browse commands.')
+			.addFields(
+				{ name: '🌐 Guilds', value: `${guilds}`, inline: true },
+				{ name: '💬 Channels', value: `${channels}`, inline: true },
+				{ name: '\u200b', value: '\u200b', inline: true },
+				{ name: '🧠 RAM', value: formatBytes(ram), inline: true },
+				{ name: '⚙️ CPU', value: `${cpuPercent}%`, inline: true },
+				{ name: '\u200b', value: '\u200b', inline: true },
+				{ name: '📦 Version', value: `v${botVersion}`, inline: true },
+				{ name: '📘 discord.js', value: `v${djsVersion}`, inline: true },
+				{ name: '🔷 Sapphire', value: `v${sapphireVersion}`, inline: true }
+			)
+			.setThumbnail(client.user?.displayAvatarURL() ?? null)
+			.setFooter({ text: `${commands.length} commands available` })
 			.setTimestamp();
 
+		// Aligné avec le helper : customId = `help-category:${userId}:${rawCategory}`
 		const buttons = categories.slice(0, 5).map((category) =>
 			new ButtonBuilder()
 				.setCustomId(`help-category:${interaction.user.id}:${category}`)
-				.setLabel(category)
-				.setStyle(category === currentCategory ? ButtonStyle.Primary : ButtonStyle.Secondary)
+				.setLabel(formatCategory(category))
+				.setStyle(ButtonStyle.Secondary)
 		);
 
 		const row = new ActionRowBuilder<ButtonBuilder>().addComponents(buttons);
