@@ -74,16 +74,22 @@ export async function upsertGuildSettings(input: {
 }
 
 export async function setAiringChannel(guildId: string, channelId: string | null) {
+	const existing = await getGuildSettings(guildId);
+
 	return upsertGuildSettings({
 		guildId,
 		airingChannelId: channelId,
+		newsChannelId: existing?.news_channel_id ?? null,
 		notificationsEnabled: channelId ? true : false
 	});
 }
 
 export async function setNewsChannel(guildId: string, channelId: string | null) {
+	const existing = await getGuildSettings(guildId);
+
 	return upsertGuildSettings({
 		guildId,
+		airingChannelId: existing?.airing_channel_id ?? null,
 		newsChannelId: channelId,
 		notificationsEnabled: channelId ? true : false
 	});
