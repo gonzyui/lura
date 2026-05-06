@@ -80,6 +80,22 @@ export async function setAiringChannel(guildId: string, channelId: string | null
 	});
 }
 
+export async function ensure(guildId: string): Promise<void> {
+	const { error } = await supabase.from('guild_settings').upsert({ guild_id: guildId }, { onConflict: 'guild_id', ignoreDuplicates: true });
+
+	if (error) throw error;
+
+	await invalidateGuildSettings(guildId);
+}
+
+export async function deleteGuild(guildId: string): Promise<void> {
+	const { error } = await supabase.from('guild_settings').delete().eq('guild_id', guildId);
+
+	if (error) throw error;
+
+	await invalidateGuildSettings(guildId);
+}
+
 export async function setNewsChannel(guildId: string, channelId: string | null): Promise<GuildSettings> {
 	return mergeAndUpsert(guildId, {
 		news_channel_id: channelId,
