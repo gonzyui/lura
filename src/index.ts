@@ -7,16 +7,8 @@ const client = new SapphireClient({
 	logger: {
 		level: LogLevel.Debug
 	},
-	intents: [
-		GatewayIntentBits.DirectMessages,
-		GatewayIntentBits.GuildMessages,
-		GatewayIntentBits.Guilds,
-		GatewayIntentBits.MessageContent,
-		GatewayIntentBits.GuildMembers,
-		GatewayIntentBits.GuildMessageReactions,
-		GatewayIntentBits.GuildMessageTyping
-	],
-	partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.GuildMember],
+	intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessageReactions],
+	partials: [Partials.Channel, Partials.Reaction, Partials.GuildMember],
 	loadMessageCommandListeners: false,
 	defaultCooldown: {
 		delay: 5000,
