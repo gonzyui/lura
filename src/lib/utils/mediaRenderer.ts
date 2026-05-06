@@ -72,26 +72,34 @@ export function buildMediaContainer(media: any, type: MediaType): ContainerBuild
 	return container;
 }
 
-export function buildMediaListContainer(mediaList: any[], type: MediaType, heading: string): ContainerBuilder {
-	const isAnime = type === MediaType.ANIME;
-	const container = new ContainerBuilder().setAccentColor(0xff1a64);
+const PAGE_SIZE = 5;
 
-	container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${heading}`));
+export function buildMediaListContainer(list: any[], type: MediaType, title: string, page = 0): { container: ContainerBuilder; totalPages: number } {
+	const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+	const safePage = Math.min(Math.max(0, page), totalPages - 1);
+	const slice = list.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
+	const container = new ContainerBuilder().setAccentColor(0xff1a64);
+	container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${title}\n-# Page ${safePage + 1} / ${totalPages}`));
 	container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
-	mediaList.slice(0, 10).forEach((media, idx) => {
-		const title = media.title.romaji || media.title.english || media.title.native || 'Unknown';
-		const score = media.averageScore ? `⭐ ${media.averageScore}` : 'N/A';
-		const extra = isAnime ? `${media.episodes ?? '?'} ep • ${media.format ?? '?'}` : `${media.chapters ?? '?'} ch • ${media.format ?? '?'}`;
+	for (const media of slice) {
+		const t = media.title.romaji || media.title.english || media.title.native || 'Unknown';
+		const score = media.averageScore ? `⭐ ${media.averageScore}` : '—';
+		const fmt = media.format ?? 'Unknown';
+		const ep = type === MediaType.ANIME ? `${media.episodes ?? '?'} ep` : `${media.chapters ?? '?'} ch`;
 
 		container.addSectionComponents(
 			new SectionBuilder()
-				.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${idx + 1}. [${title}](${media.siteUrl})**\n${extra} • ${score}`))
+				.addTextDisplayComponents(
+					new TextDisplayBuilder().setContent(`### ${t}`),
+					new TextDisplayBuilder().setContent(`${score} • **${fmt}** • ${ep}\n${media.siteUrl ? `[AniList](${media.siteUrl})` : ''}`)
+				)
 				.setThumbnailAccessory(
-					new ThumbnailBuilder().setURL(media.coverImage?.large || media.coverImage?.extraLarge || '').setDescription(`Cover of ${title}`)
+					new ThumbnailBuilder().setURL(media.coverImage?.large || media.coverImage?.extraLarge || '').setDescription(`Cover of ${t}`)
 				)
 		);
-	});
+	}
 
-	return container;
+	return { container, totalPages };
 }

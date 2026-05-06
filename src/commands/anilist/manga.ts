@@ -3,7 +3,14 @@ import { Command } from '@sapphire/framework';
 import { ApplicationCommandOptionType, ApplicationIntegrationType, InteractionContextType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import AnilistClient from '../../lib/aniClient';
 import { MediaSort, MediaType } from 'ani-client';
-import { buildMediaContainer, buildMediaListContainer } from '../../lib/utils/mediaRenderer';
+import { buildMediaContainer } from '../../lib/utils/mediaRenderer';
+import { paginateMediaList } from '../../lib/utils/paginator';
+import { autocompleteMedia } from '../../lib/utils/mediaAutocomplete';
+
+const SPECIALS = [
+	{ name: '🔥 Trending', value: 'trending' },
+	{ name: '🏆 Top Rated', value: 'top' }
+];
 
 @ApplyOptions<Command.Options>({
 	description: 'Search a manga, or browse trending / top-rated.',
@@ -31,13 +38,7 @@ export class MangaCommand extends Command {
 	}
 
 	public override async autocompleteRun(interaction: Command.AutocompleteInteraction) {
-		const focused = interaction.options.getFocused().toLowerCase();
-		const suggestions = [
-			{ name: '🔥 Trending', value: 'trending' },
-			{ name: '🏆 Top Rated', value: 'top' }
-		].filter((s) => s.name.toLowerCase().includes(focused) || s.value.includes(focused));
-
-		return interaction.respond(suggestions);
+		return autocompleteMedia(interaction, MediaType.MANGA, SPECIALS);
 	}
 
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
@@ -48,36 +49,19 @@ export class MangaCommand extends Command {
 		const lower = query.toLowerCase();
 
 		if (lower === 'trending') {
-			const search = await client.searchMedia({
-				type: MediaType.MANGA,
-				sort: [MediaSort.TRENDING_DESC]
-			});
+			const search = await client.searchMedia({ type: MediaType.MANGA, sort: [MediaSort.TRENDING_DESC] });
 			const list = search?.results ?? [];
 			if (!list.length) return interaction.editReply({ content: '> No trending manga found.' });
-
-			return interaction.editReply({
-				flags: MessageFlags.IsComponentsV2,
-				components: [buildMediaListContainer(list, MediaType.MANGA, '🔥 Trending Manga')],
-				allowedMentions: { parse: [] }
-			});
+			return paginateMediaList(interaction, list, MediaType.MANGA, '🔥 Trending Manga');
 		}
 
 		if (lower === 'top') {
-			const search = await client.searchMedia({
-				type: MediaType.MANGA,
-				sort: [MediaSort.SCORE_DESC]
-			});
+			const search = await client.searchMedia({ type: MediaType.MANGA, sort: [MediaSort.SCORE_DESC] });
 			const list = search?.results ?? [];
 			if (!list.length) return interaction.editReply({ content: '> No top manga found.' });
-
-			return interaction.editReply({
-				flags: MessageFlags.IsComponentsV2,
-				components: [buildMediaListContainer(list, MediaType.MANGA, '🏆 Top Manga')],
-				allowedMentions: { parse: [] }
-			});
+			return paginateMediaList(interaction, list, MediaType.MANGA, '🏆 Top Manga');
 		}
 
-		// Search by name (default)
 		const search = await client.searchMedia({
 			query,
 			type: MediaType.MANGA,

@@ -3,7 +3,14 @@ import { Command } from '@sapphire/framework';
 import { ApplicationCommandOptionType, ApplicationIntegrationType, InteractionContextType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import AnilistClient from '../../lib/aniClient';
 import { MediaSort, MediaStatus, MediaType } from 'ani-client';
-import { buildMediaContainer, buildMediaListContainer } from '../../lib/utils/mediaRenderer';
+import { buildMediaContainer } from '../../lib/utils/mediaRenderer';
+import { paginateMediaList } from '../../lib/utils/paginator';
+import { autocompleteMedia } from '../../lib/utils/mediaAutocomplete';
+
+const SPECIALS = [
+	{ name: '🔥 Trending', value: 'trending' },
+	{ name: '📺 Currently Airing', value: 'airing' }
+];
 
 @ApplyOptions<Command.Options>({
 	description: 'Search an anime, or browse trending / airing.',
@@ -30,14 +37,8 @@ export class AnimeCommand extends Command {
 		});
 	}
 
-	public override async autocompleteRun(interaction: Command.AutocompleteInteraction) {
-		const focused = interaction.options.getFocused().toLowerCase();
-		const suggestions = [
-			{ name: '🔥 Trending', value: 'trending' },
-			{ name: '📺 Currently Airing', value: 'airing' }
-		].filter((s) => s.name.toLowerCase().includes(focused) || s.value.includes(focused));
-
-		return interaction.respond(suggestions);
+	public override autocompleteRun(interaction: Command.AutocompleteInteraction) {
+		return autocompleteMedia(interaction, MediaType.ANIME, SPECIALS);
 	}
 
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
@@ -54,12 +55,7 @@ export class AnimeCommand extends Command {
 			});
 			const list = search?.results ?? [];
 			if (!list.length) return interaction.editReply({ content: '> No trending anime found.' });
-
-			return interaction.editReply({
-				flags: MessageFlags.IsComponentsV2,
-				components: [buildMediaListContainer(list, MediaType.ANIME, '🔥 Trending Anime')],
-				allowedMentions: { parse: [] }
-			});
+			return paginateMediaList(interaction, list, MediaType.ANIME, '🔥 Trending Anime');
 		}
 
 		if (lower === 'airing') {
@@ -70,15 +66,9 @@ export class AnimeCommand extends Command {
 			});
 			const list = search?.results ?? [];
 			if (!list.length) return interaction.editReply({ content: '> No airing anime found.' });
-
-			return interaction.editReply({
-				flags: MessageFlags.IsComponentsV2,
-				components: [buildMediaListContainer(list, MediaType.ANIME, '📺 Currently Airing')],
-				allowedMentions: { parse: [] }
-			});
+			return paginateMediaList(interaction, list, MediaType.ANIME, '📺 Currently Airing');
 		}
 
-		// Search by name (default)
 		const search = await client.searchMedia({
 			query,
 			type: MediaType.ANIME,
