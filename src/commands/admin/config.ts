@@ -7,7 +7,8 @@ import {
 	EmbedBuilder,
 	InteractionContextType,
 	MessageFlags,
-	PermissionFlagsBits
+	PermissionFlagsBits,
+	type GuildTextBasedChannel
 } from 'discord.js';
 import { setAiringChannel, setNewsChannel, getGuildSettings } from '../../lib/database/guildSettingsStore';
 
@@ -26,65 +27,29 @@ export class ConfigCommand extends Command {
 			defaultMemberPermissions: PermissionFlagsBits.ManageGuild,
 			options: [
 				{
-					name: 'view',
-					description: 'View current server configuration.',
-					type: ApplicationCommandOptionType.Subcommand
-				},
-				{
-					name: 'set',
-					description: 'Set notification channels.',
-					type: ApplicationCommandOptionType.SubcommandGroup,
-					options: [
-						{
-							name: 'airing',
-							description: 'Set the episode notifications channel.',
-							type: ApplicationCommandOptionType.Subcommand,
-							options: [
-								{
-									name: 'channel',
-									description: 'The channel where episode notifications will be sent.',
-									type: ApplicationCommandOptionType.Channel,
-									required: true,
-									channelTypes: [ChannelType.GuildText, ChannelType.GuildAnnouncement]
-								}
-							]
-						},
-						{
-							name: 'news',
-							description: 'Set the anime news channel.',
-							type: ApplicationCommandOptionType.Subcommand,
-							options: [
-								{
-									name: 'channel',
-									description: 'The channel where anime news will be sent.',
-									type: ApplicationCommandOptionType.Channel,
-									required: true,
-									channelTypes: [ChannelType.GuildText, ChannelType.GuildAnnouncement]
-								}
-							]
-						}
+					name: 'action',
+					description: 'What you want to do.',
+					type: ApplicationCommandOptionType.String,
+					required: true,
+					choices: [
+						{ name: '👁️ View current configuration', value: 'view' },
+						{ name: '📺 Set airing channel', value: 'set_airing' },
+						{ name: '📰 Set news channel', value: 'set_news' },
+						{ name: '🗑️ Reset airing channel', value: 'reset_airing' },
+						{ name: '🗑️ Reset news channel', value: 'reset_news' }
 					]
 				},
 				{
-					name: 'reset',
-					description: 'Reset notification channels.',
-					type: ApplicationCommandOptionType.SubcommandGroup,
-					options: [
-						{
-							name: 'airing',
-							description: 'Remove the episode notifications channel.',
-							type: ApplicationCommandOptionType.Subcommand
-						},
-						{
-							name: 'news',
-							description: 'Remove the anime news channel.',
-							type: ApplicationCommandOptionType.Subcommand
-						}
-					]
+					name: 'channel',
+					description: 'Channel to set (only required for "set" actions).',
+					type: ApplicationCommandOptionType.Channel,
+					channelTypes: [ChannelType.GuildText, ChannelType.GuildAnnouncement],
+					required: false
 				}
 			]
 		});
 	}
+
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction): Promise<void> {
 		if (!interaction.inCachedGuild()) {
 			await interaction.reply({
@@ -96,22 +61,19 @@ export class ConfigCommand extends Command {
 
 		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-		const subcommandGroup = interaction.options.getSubcommandGroup(false);
-		const subcommand = interaction.options.getSubcommand();
+		const action = interaction.options.getString('action', true);
 
-		if (subcommand === 'view') {
-			await this.handleView(interaction);
-			return;
-		}
-
-		if (subcommandGroup === 'set') {
-			await this.handleSet(interaction, subcommand as 'airing' | 'news');
-			return;
-		}
-
-		if (subcommandGroup === 'reset') {
-			await this.handleReset(interaction, subcommand as 'airing' | 'news');
-			return;
+		switch (action) {
+			case 'view':
+				return this.handleView(interaction);
+			case 'set_airing':
+				return this.handleSet(interaction, 'airing');
+			case 'set_news':
+				return this.handleSet(interaction, 'news');
+			case 'reset_airing':
+				return this.handleReset(interaction, 'airing');
+			case 'reset_news':
+				return this.handleReset(interaction, 'news');
 		}
 	}
 
@@ -125,7 +87,7 @@ export class ConfigCommand extends Command {
 						new EmbedBuilder()
 							.setColor(0xff1a64)
 							.setTitle('Server Configuration')
-							.setDescription('No configuration found. Use `/config set` to configure channels.')
+							.setDescription('No configuration found. Use `/config` with a `set` action to configure channels.')
 							.setFooter({ text: `Guild ID: ${interaction.guildId}` })
 							.setTimestamp()
 					]
@@ -136,30 +98,16 @@ export class ConfigCommand extends Command {
 			const airingChannelText = settings.airing_channel_id
 				? `<#${settings.airing_channel_id}> (\`${settings.airing_channel_id}\`)`
 				: '❌ Not set';
-
 			const newsChannelText = settings.news_channel_id ? `<#${settings.news_channel_id}> (\`${settings.news_channel_id}\`)` : '❌ Not set';
-
 			const notificationsText = settings.notifications_enabled ? '✅ Enabled' : '❌ Disabled';
 
 			const embed = new EmbedBuilder()
 				.setColor(0xff1a64)
 				.setTitle('Server Configuration')
 				.addFields(
-					{
-						name: '📺 Airing Channel',
-						value: airingChannelText,
-						inline: false
-					},
-					{
-						name: '📰 News Channel',
-						value: newsChannelText,
-						inline: false
-					},
-					{
-						name: '🔔 Notifications',
-						value: notificationsText,
-						inline: false
-					}
+					{ name: '📺 Airing Channel', value: airingChannelText, inline: false },
+					{ name: '📰 News Channel', value: newsChannelText, inline: false },
+					{ name: '🔔 Notifications', value: notificationsText, inline: false }
 				)
 				.setFooter({ text: `Guild ID: ${interaction.guildId}` })
 				.setTimestamp();
@@ -167,16 +115,24 @@ export class ConfigCommand extends Command {
 			await interaction.editReply({ embeds: [embed] });
 		} catch (error) {
 			this.container.logger.error('[Config] Failed to fetch settings:', error);
-			await interaction.editReply({
-				content: '❌ Failed to fetch configuration.'
-			});
+			await interaction.editReply({ content: '❌ Failed to fetch configuration.' });
 		}
 	}
 
 	private async handleSet(interaction: Command.ChatInputCommandInteraction, type: 'airing' | 'news'): Promise<void> {
-		const channel = interaction.options.getChannel('channel', true, [ChannelType.GuildText, ChannelType.GuildAnnouncement]);
-		const me = interaction.guild!.members.me!;
+		const channel = interaction.options.getChannel('channel', false, [
+			ChannelType.GuildText,
+			ChannelType.GuildAnnouncement
+		]) as GuildTextBasedChannel | null;
 
+		if (!channel) {
+			await interaction.editReply({
+				content: '❌ You must provide a `channel` when using a "set" action.'
+			});
+			return;
+		}
+
+		const me = interaction.guild!.members.me!;
 		const botPerms = channel.permissionsFor(me);
 		const missing: string[] = [];
 
@@ -219,9 +175,7 @@ export class ConfigCommand extends Command {
 			});
 		} catch (error) {
 			this.container.logger.error(`[Config] Failed to set ${type} channel:`, error);
-			await interaction.editReply({
-				content: `❌ Database error while setting ${type} channel.`
-			});
+			await interaction.editReply({ content: `❌ Database error while setting ${type} channel.` });
 		}
 	}
 
@@ -247,9 +201,7 @@ export class ConfigCommand extends Command {
 			});
 		} catch (error) {
 			this.container.logger.error(`[Config] Failed to reset ${type} channel:`, error);
-			await interaction.editReply({
-				content: `❌ Database error while resetting ${type} channel.`
-			});
+			await interaction.editReply({ content: `❌ Database error while resetting ${type} channel.` });
 		}
 	}
 }
