@@ -37,10 +37,31 @@ export class CharactersCommand extends Command {
 					name: 'name',
 					description: 'Name of the character.',
 					type: ApplicationCommandOptionType.String,
-					required: true
+					required: true,
+					autocomplete: true
 				}
 			]
 		});
+	}
+
+	public override async autocompleteRun(interaction: Command.AutocompleteInteraction) {
+		const focused = interaction.options.getFocused().trim();
+		if (!focused) return interaction.respond([]);
+
+		try {
+			const search = await AnilistClient.getInstance()
+				.getAniClient()
+				.searchCharacters({ query: focused, sort: [CharacterSort.FAVOURITES_DESC] });
+
+			const results = (search?.results ?? []).slice(0, 10).map((c) => ({
+				name: truncate(c.name?.full || c.name?.native || 'Unknown', 100),
+				value: c.name?.full || c.name?.native || 'Unknown'
+			}));
+
+			return interaction.respond(results);
+		} catch {
+			return interaction.respond([]);
+		}
 	}
 
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
@@ -75,11 +96,28 @@ export class CharactersCommand extends Command {
 				.filter(Boolean)
 				.join(', ') || 'Unknown';
 
+		let japaneseVA: string | null = null;
+		try {
+			const edges = (character.media as any)?.edges;
+			if (Array.isArray(edges)) {
+				for (const edge of edges) {
+					const vas = edge?.voiceActors;
+					if (!Array.isArray(vas)) continue;
+					const va = vas.find((v: any) => v?.languageV2 === 'Japanese');
+					if (va?.name?.full) {
+						japaneseVA = va.name.full;
+						break;
+					}
+				}
+			}
+		} catch {}
+
 		const quickFacts = [
 			`**Gender:** ${character.gender ?? 'Unknown'}`,
 			`**Age:** ${character.age ?? 'Unknown'}`,
 			`**Birthday:** ${formatDate(character.dateOfBirth)}`,
 			`**Favorites:** ${character.favourites ?? 'Unknown'}`,
+			japaneseVA ? `**Voice (JP):** ${japaneseVA}` : null,
 			`**Featured in:** ${featuredIn}`,
 			character.siteUrl ? `**AniList:** ${character.siteUrl}` : null
 		]
