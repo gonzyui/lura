@@ -3,8 +3,8 @@ import { Command } from '@sapphire/framework';
 import { ApplicationCommandOptionType, ApplicationIntegrationType, InteractionContextType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import AnilistClient from '../../lib/aniClient';
 import { StaffSort } from 'ani-client';
-import { buildStaffContainer, buildStaffListContainer } from '../../lib/utils/staffRenderer';
-import { autocompleteStaff } from '../../lib/utils/staffAutocomplete';
+import { buildStaffContainer, buildStaffListContainer } from '../../lib/utils/renderer/staff';
+import { autocompleteStaff } from '../../lib/utils/autocomplete/staff';
 
 @ApplyOptions<Command.Options>({
 	description: 'Search a voice actor or staff member.',

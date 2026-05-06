@@ -9,7 +9,7 @@ import {
 	ThumbnailBuilder
 } from 'discord.js';
 import { MediaType } from 'ani-client';
-import { stripHtml, formatDate, truncate } from './formatters';
+import { stripHtml, formatDate, truncate } from '../formatters';
 
 export function buildMediaContainer(media: any, type: MediaType): ContainerBuilder {
 	const title = media.title.romaji || media.title.english || media.title.native || 'Unknown title';

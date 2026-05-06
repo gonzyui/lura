@@ -22,3 +22,12 @@ export function formatCategory(category: string) {
 export function formatBytes(bytes: number) {
 	return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
+
+export function stripMarkdown(text: string): string {
+	return text
+		.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+		.replace(/__([^_]+)__/g, '$1')
+		.replace(/\*\*([^*]+)\*\*/g, '$1')
+		.replace(/\n{3,}/g, '\n\n')
+		.trim();
+}

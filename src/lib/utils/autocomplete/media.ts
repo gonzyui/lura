@@ -1,5 +1,5 @@
 import type { AutocompleteInteraction } from 'discord.js';
-import AnilistClient from '../aniClient';
+import AnilistClient from '../../aniClient';
 import { MediaSort, MediaType } from 'ani-client';
 
 export async function autocompleteMedia(interaction: AutocompleteInteraction, type: MediaType, specials: { name: string; value: string }[]) {
