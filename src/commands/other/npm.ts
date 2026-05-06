@@ -1,11 +1,6 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
-import {
-	ApplicationCommandOptionType,
-	ApplicationIntegrationType,
-	EmbedBuilder,
-	InteractionContextType,
-} from 'discord.js';
+import { ApplicationCommandOptionType, ApplicationIntegrationType, EmbedBuilder, InteractionContextType } from 'discord.js';
 
 interface NpmMaintainer {
 	name?: string;
@@ -41,21 +36,16 @@ interface NpmPackageMetadata {
 	};
 }
 
-const isObject = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null;
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
 const isNpmPackageMetadata = (value: unknown): value is NpmPackageMetadata => {
 	if (!isObject(value)) return false;
 	const distTags = value['dist-tags'];
 	const versions = value.versions;
-	return (
-		(distTags === undefined || isObject(distTags)) &&
-		(versions === undefined || isObject(versions))
-	);
+	return (distTags === undefined || isObject(distTags)) && (versions === undefined || isObject(versions));
 };
 
-const formatDate = (value?: string): string =>
-	value ? `<t:${Math.floor(new Date(value).getTime() / 1000)}:D>` : 'Unknown';
+const formatDate = (value?: string): string => (value ? `<t:${Math.floor(new Date(value).getTime() / 1000)}:D>` : 'Unknown');
 
 @ApplyOptions<Command.Options>({
 	description: 'Shows information about an npm package.'
@@ -110,20 +100,15 @@ export class NpmCommand extends Command {
 		const maintainers =
 			pkg.maintainers && pkg.maintainers.length > 0
 				? pkg.maintainers
-					.map((m) => m.name)
-					.filter((name): name is string => Boolean(name))
-					.slice(0, 5)
-					.join(', ')
+						.map((m) => m.name)
+						.filter((name): name is string => Boolean(name))
+						.slice(0, 5)
+						.join(', ')
 				: 'Unknown';
 
-		const repositoryUrl =
-			typeof latest.repository === 'string'
-				? latest.repository
-				: (latest.repository?.url ?? null);
+		const repositoryUrl = typeof latest.repository === 'string' ? latest.repository : (latest.repository?.url ?? null);
 
-		const cleanRepositoryUrl = repositoryUrl
-			?.replace(/^git\+/, '')
-			?.replace(/\.git$/, '');
+		const cleanRepositoryUrl = repositoryUrl?.replace(/^git\+/, '')?.replace(/\.git$/, '');
 
 		const publishedAt = latestVersion ? pkg.time?.[latestVersion] : undefined;
 

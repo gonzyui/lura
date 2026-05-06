@@ -62,11 +62,9 @@ export class CharactersCommand extends Command {
 		}
 
 		const characterName =
-			[
-				character.name?.full,
-				[character.name?.first, character.name?.last].filter(Boolean).join(' ').trim(),
-				character.name?.native
-			].find(Boolean) || 'Unknown character';
+			[character.name?.full, [character.name?.first, character.name?.last].filter(Boolean).join(' ').trim(), character.name?.native].find(
+				Boolean
+			) || 'Unknown character';
 
 		const description = truncate(stripHtml(character.description), 700);
 		const mediaPreview = character.media?.nodes?.slice(0, 4) || [];

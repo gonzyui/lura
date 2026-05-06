@@ -1,12 +1,6 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
-import {
-	ApplicationCommandOptionType,
-	ApplicationIntegrationType,
-	EmbedBuilder,
-	InteractionContextType,
-	MessageFlags
-} from 'discord.js';
+import { ApplicationCommandOptionType, ApplicationIntegrationType, EmbedBuilder, InteractionContextType, MessageFlags } from 'discord.js';
 
 interface GitHubOwner {
 	login?: string;
@@ -37,19 +31,14 @@ interface GitHubRepository {
 	license?: GitHubLicense | null;
 }
 
-const isObject = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null;
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
 const isGitHubRepository = (value: unknown): value is GitHubRepository => {
 	if (!isObject(value)) return false;
-	return (
-		('full_name' in value || 'html_url' in value || 'owner' in value) &&
-		(value.owner === undefined || isObject(value.owner))
-	);
+	return ('full_name' in value || 'html_url' in value || 'owner' in value) && (value.owner === undefined || isObject(value.owner));
 };
 
-const formatDate = (value?: string | null): string =>
-	value ? `<t:${Math.floor(new Date(value).getTime() / 1000)}:D>` : 'Unknown';
+const formatDate = (value?: string | null): string => (value ? `<t:${Math.floor(new Date(value).getTime() / 1000)}:D>` : 'Unknown');
 
 @ApplyOptions<Command.Options>({
 	description: 'Shows information about a GitHub repository.'

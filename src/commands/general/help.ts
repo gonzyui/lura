@@ -54,19 +54,13 @@ export class HelpCommand extends Command {
 				});
 			}
 
-			const category =
-				command.fullCategory.length > 0
-					? formatCategory(command.fullCategory.join(' > '))
-					: 'Other';
+			const category = command.fullCategory.length > 0 ? formatCategory(command.fullCategory.join(' > ')) : 'Other';
 
 			const embed = new EmbedBuilder()
 				.setColor(0xff1a64)
 				.setTitle(`/${command.name}`)
 				.setDescription(command.description || 'No description provided.')
-				.addFields(
-					{ name: 'Category', value: category, inline: true },
-					{ name: 'Usage', value: `\`/${command.name}\``, inline: true }
-				)
+				.addFields({ name: 'Category', value: category, inline: true }, { name: 'Usage', value: `\`/${command.name}\``, inline: true })
 				.setFooter({ text: 'Lura — Help' })
 				.setTimestamp();
 
@@ -83,7 +77,7 @@ export class HelpCommand extends Command {
 		const cpuStart = cpuUsage();
 		await new Promise((r) => setTimeout(r, 100));
 		const cpuEnd = cpuUsage(cpuStart);
-		const cpuPercent = ((cpuEnd.user + cpuEnd.system) / 1e6 / 0.1 * 100).toFixed(1);
+		const cpuPercent = (((cpuEnd.user + cpuEnd.system) / 1e6 / 0.1) * 100).toFixed(1);
 
 		const guilds = client.guilds.cache.size;
 		const channels = client.channels.cache.size;
@@ -119,12 +113,14 @@ export class HelpCommand extends Command {
 			.setTimestamp();
 
 		// Aligné avec le helper : customId = `help-category:${userId}:${rawCategory}`
-		const buttons = categories.slice(0, 5).map((category) =>
-			new ButtonBuilder()
-				.setCustomId(`help-category:${interaction.user.id}:${category}`)
-				.setLabel(formatCategory(category))
-				.setStyle(ButtonStyle.Secondary)
-		);
+		const buttons = categories
+			.slice(0, 5)
+			.map((category) =>
+				new ButtonBuilder()
+					.setCustomId(`help-category:${interaction.user.id}:${category}`)
+					.setLabel(formatCategory(category))
+					.setStyle(ButtonStyle.Secondary)
+			);
 
 		const row = new ActionRowBuilder<ButtonBuilder>().addComponents(buttons);
 
