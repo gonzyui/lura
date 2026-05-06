@@ -14,7 +14,8 @@ import {
     SeparatorBuilder,
     SeparatorSpacingSize,
     TextDisplayBuilder,
-    ThumbnailBuilder
+    ThumbnailBuilder,
+    type SendableChannels
 } from 'discord.js';
 import { redis } from './database/redis';
 import { getNewsChannelId } from './database/guildSettingsStore';
@@ -27,6 +28,13 @@ const SENT_TTL_SECONDS = 60 * 60 * 24 * 30;
 type LastActivityPayload = {
     title: string;
     episode: number | string;
+};
+
+type AiredSchedule = {
+    id?: number;
+    airingAt: number;
+    episode?: number;
+    media?: any;
 };
 
 export class EpisodeNotifier {
@@ -43,7 +51,6 @@ export class EpisodeNotifier {
             container.logger.warn('[AniClient] EpisodeNotifier is already running.');
             return;
         }
-
         void this.tick();
     }
 
@@ -52,23 +59,23 @@ export class EpisodeNotifier {
             clearTimeout(this.timeout);
             this.timeout = null;
         }
-
         this.isRunning = false;
         container.logger.info('[AniClient] EpisodeNotifier stopped.');
     }
 
     private scheduleNext() {
+        const jitter = this.pollInterval * (0.9 + Math.random() * 0.2);
         this.timeout = setTimeout(() => {
             this.timeout = null;
             void this.tick();
-        }, this.pollInterval);
+        }, jitter);
     }
 
-    private makeKey(schedule: any) {
+    private makeKey(schedule: AiredSchedule) {
         return `${schedule.id ?? `${schedule.media?.id}:${schedule.episode}:${schedule.airingAt}`}`;
     }
 
-    private makeSentKey(schedule: any) {
+    private makeSentKey(schedule: AiredSchedule) {
         return `${SENT_PREFIX}${this.makeKey(schedule)}`;
     }
 
@@ -82,7 +89,6 @@ export class EpisodeNotifier {
         if (text.length > 700) {
             text = `${text.slice(0, 697)}...`;
         }
-
         return text;
     }
 
@@ -124,32 +130,99 @@ export class EpisodeNotifier {
         await redis.set(LAST_ACTIVITY_KEY, JSON.stringify(payload));
     }
 
-    private async tryMarkEpisodeSent(schedule: any) {
+    private async tryMarkEpisodeSent(schedule: AiredSchedule) {
         const result = await redis.set(this.makeSentKey(schedule), '1', 'EX', SENT_TTL_SECONDS, 'NX');
         return result === 'OK';
+    }
+
+    private async unmarkEpisodeSent(schedule: AiredSchedule) {
+        await redis.del(this.makeSentKey(schedule));
     }
 
     private async getNewsChannel(guildId: string) {
         const channelId = await getNewsChannelId(guildId);
 
-        if (!channelId) {
-            container.logger.warn(`[AniClient] No news channel configured for guild ${guildId}.`);
-            return null;
-        }
+        if (!channelId) return null;
 
         const cached = container.client.channels.cache.get(channelId);
-        if (cached?.isSendable()) {
-            return cached;
-        }
+        if (cached?.isSendable()) return cached;
 
         const fetched = await container.client.channels.fetch(channelId).catch(() => null);
         if (!fetched?.isSendable()) {
-            container.logger.warn(`[AniClient] News channel ${channelId} not found or not sendable.`);
+            container.logger.warn(`[AniClient] News channel ${channelId} not found or not sendable (guild ${guildId}).`);
             return null;
         }
-
         return fetched;
     }
+
+    private buildMessage(schedule: AiredSchedule) {
+        const media = schedule.media;
+        const title = media.title?.english || media.title?.native || media.title?.romaji || 'Unknown title';
+        const description = this.cleanDescription(media.description);
+
+        const headerLine = ['## New episode released', `# ${title}`].join('\n');
+
+        const detailsLine = [
+            `**Episode:** ${schedule.episode ?? 'Unknown'}`,
+            media.format ? `**Format:** ${media.format}` : null,
+            media.status ? `**Status:** ${media.status}` : null
+        ]
+            .filter(Boolean)
+            .join(' • ');
+
+        const messageContainer = new ContainerBuilder().setAccentColor(0xff1a64);
+
+        const section = new SectionBuilder().addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(headerLine),
+            new TextDisplayBuilder().setContent([detailsLine, description].filter(Boolean).join('\n\n'))
+        );
+
+        const thumb = media.coverImage?.extraLarge || media.coverImage?.large;
+        if (thumb) {
+            section.setThumbnailAccessory(
+                new ThumbnailBuilder().setURL(thumb).setDescription(`Cover image of ${title}`)
+            );
+        }
+
+        messageContainer.addSectionComponents(section);
+
+        if (media.bannerImage) {
+            messageContainer.addSeparatorComponents(
+                new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+            );
+            messageContainer.addMediaGalleryComponents(
+                new MediaGalleryBuilder().addItems(
+                    new MediaGalleryItemBuilder()
+                        .setURL(media.bannerImage)
+                        .setDescription(`Banner image of ${title}`)
+                )
+            );
+        }
+
+        messageContainer.addSeparatorComponents(
+            new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+        );
+
+        messageContainer.addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+                [
+                    `**Popularity:** ${media.popularity ?? 'Unknown'}`,
+                    `**Score:** ${media.averageScore ?? 'Unknown'}`,
+                    `**Favorites:** ${media.favourites ?? 'Unknown'}`
+                ].join('\n')
+            )
+        );
+
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setStyle(ButtonStyle.Link)
+                .setLabel('View on AniList')
+                .setURL(media.siteUrl || 'https://anilist.co')
+        );
+
+        return { title, components: [messageContainer, row] as const };
+    }
+
     private async tick() {
         if (this.isRunning) {
             container.logger.warn('[AniClient] Tick skipped: previous run still active.');
@@ -169,7 +242,7 @@ export class EpisodeNotifier {
                         return channel ? { guild, channel } : null;
                     })
                 )
-            ).filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+            ).filter((entry): entry is { guild: typeof entry extends null ? never : NonNullable<typeof entry>['guild']; channel: SendableChannels } => Boolean(entry));
 
             if (guildChannels.length === 0) {
                 container.logger.warn('[AniClient] No configured news channels found.');
@@ -184,101 +257,64 @@ export class EpisodeNotifier {
                     perPage: 50
                 });
 
-            const results = (notif.results ?? [])
+            const results = ((notif.results ?? []) as AiredSchedule[])
                 .filter((schedule) => schedule?.airingAt && schedule.media)
                 .sort((a, b) => a.airingAt - b.airingAt);
 
             container.logger.info(
                 `[AniClient] API returned ${results.length} results. ${results.length > 0
                     ? `(${results.map((r) => r.media?.title?.english || r.media?.title?.romaji || r.media?.title?.native).join(', ')})`
-                    : '(Nothing)'}`
+                    : '(Nothing)'
+                }`
             );
 
             let maxAiringAtSeen = this.lastChecked;
             let latestActivity: LastActivityPayload | null = null;
 
             for (const schedule of results) {
-                maxAiringAtSeen = Math.max(maxAiringAtSeen, schedule.airingAt ?? 0);
-
                 const wasMarked = await this.tryMarkEpisodeSent(schedule);
-                if (!wasMarked) continue;
-
-                const media = schedule.media;
-                const title = media.title?.english || media.title?.native || media.title?.romaji || 'Unknown title';
-                const description = this.cleanDescription(media.description);
-
-                const headerLine = ['## New episode released', `# ${title}`].join('\n');
-
-                const detailsLine = [
-                    `**Episode:** ${schedule.episode ?? 'Unknown'}`,
-                    media.format ? `**Format:** ${media.format}` : null,
-                    media.status ? `**Status:** ${media.status}` : null
-                ]
-                    .filter(Boolean)
-                    .join(' • ');
-
-                const messageContainer = new ContainerBuilder().setAccentColor(0xff1a64);
-
-                const section = new SectionBuilder().addTextDisplayComponents(
-                    new TextDisplayBuilder().setContent(headerLine),
-                    new TextDisplayBuilder().setContent([detailsLine, description].filter(Boolean).join('\n\n'))
-                );
-
-                const thumb = media.coverImage?.extraLarge || media.coverImage?.large;
-                if (thumb) {
-                    section.setThumbnailAccessory(
-                        new ThumbnailBuilder().setURL(thumb).setDescription(`Cover image of ${title}`)
-                    );
+                if (!wasMarked) {
+                    maxAiringAtSeen = Math.max(maxAiringAtSeen, schedule.airingAt ?? 0);
+                    continue;
                 }
 
-                messageContainer.addSectionComponents(section);
+                const { title, components } = this.buildMessage(schedule);
 
-                if (media.bannerImage) {
-                    messageContainer.addSeparatorComponents(
-                        new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
-                    );
-
-                    messageContainer.addMediaGalleryComponents(
-                        new MediaGalleryBuilder().addItems(
-                            new MediaGalleryItemBuilder()
-                                .setURL(media.bannerImage)
-                                .setDescription(`Banner image of ${title}`)
-                        )
-                    );
-                }
-
-                messageContainer.addSeparatorComponents(
-                    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
-                );
-
-                messageContainer.addTextDisplayComponents(
-                    new TextDisplayBuilder().setContent(
-                        [
-                            `**Popularity:** ${media.popularity ?? 'Unknown'}`,
-                            `**Score:** ${media.averageScore ?? 'Unknown'}`,
-                            `**Favorites:** ${media.favourites ?? 'Unknown'}`
-                        ].join('\n')
+                const sendResults = await Promise.allSettled(
+                    guildChannels.map(({ guild, channel }) =>
+                        channel
+                            .send({
+                                flags: MessageFlags.IsComponentsV2,
+                                components: [...components],
+                                allowedMentions: { parse: [] }
+                            })
+                            .then(() => {
+                                container.logger.info(
+                                    `[AniClient] Episode sent to guild ${guild.id}: ${title} #${schedule.episode ?? '?'}`
+                                );
+                                return guild.id;
+                            })
                     )
                 );
 
-                const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder()
-                        .setStyle(ButtonStyle.Link)
-                        .setLabel('View on AniList')
-                        .setURL(media.siteUrl || 'https://anilist.co')
+                const successCount = sendResults.filter((r) => r.status === 'fulfilled').length;
+                const failures = sendResults.filter(
+                    (r): r is PromiseRejectedResult => r.status === 'rejected'
                 );
 
-                for (const { guild, channel } of guildChannels) {
-                    await channel.send({
-                        flags: MessageFlags.IsComponentsV2,
-                        components: [messageContainer, row],
-                        allowedMentions: { parse: [] }
-                    });
-
-                    container.logger.info(
-                        `[AniClient] New episode sent to guild ${guild.id}: ${title} #${schedule.episode ?? 'Unknown'} (${this.makeKey(schedule)})`
-                    );
+                for (const failure of failures) {
+                    container.logger.error(`[AniClient] Failed to send episode "${title}":`, failure.reason);
                 }
+
+                if (successCount === 0) {
+                    container.logger.warn(
+                        `[AniClient] All guilds failed for "${title}" #${schedule.episode}. Rolling back sent flag.`
+                    );
+                    await this.unmarkEpisodeSent(schedule);
+                    continue;
+                }
+
+                maxAiringAtSeen = Math.max(maxAiringAtSeen, schedule.airingAt ?? 0);
 
                 latestActivity = {
                     title,
@@ -286,7 +322,7 @@ export class EpisodeNotifier {
                 };
             }
 
-            if (results.length > 0) {
+            if (maxAiringAtSeen > this.lastChecked) {
                 this.lastChecked = maxAiringAtSeen;
                 await this.saveLastChecked(this.lastChecked);
             }

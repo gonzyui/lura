@@ -8,6 +8,7 @@ import {
 	MediaGalleryBuilder,
 	MediaGalleryItemBuilder,
 	MessageFlags,
+	PermissionFlagsBits,
 	SectionBuilder,
 	SeparatorBuilder,
 	SeparatorSpacingSize,
@@ -16,20 +17,21 @@ import {
 } from 'discord.js';
 import AnilistClient from '../../lib/aniClient';
 import { MediaSort, MediaType } from 'ani-client';
+import { stripHtml, formatDate, truncate } from '../../lib/utils/formatters';
 
 @ApplyOptions<Command.Options>({
-	description: 'Shows informations about manga.'
+	description: 'Shows informations about manga.',
+	requiredClientPermissions: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.AttachFiles],
+	cooldownDelay: 3000,
+	cooldownLimit: 1
 })
 export class MangaCommand extends Command {
 	public override registerApplicationCommands(registry: Command.Registry) {
-		const integrationTypes: ApplicationIntegrationType[] = [ApplicationIntegrationType.GuildInstall];
-		const contexts: InteractionContextType[] = [InteractionContextType.Guild];
-
 		registry.registerChatInputCommand({
 			name: this.name,
 			description: this.description,
-			integrationTypes,
-			contexts,
+			integrationTypes: [ApplicationIntegrationType.GuildInstall],
+			contexts: [InteractionContextType.Guild],
 			options: [
 				{
 					name: 'name',
@@ -42,6 +44,8 @@ export class MangaCommand extends Command {
 	}
 
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
+		await interaction.deferReply();
+
 		const name = interaction.options.getString('name', true);
 
 		const search = await AnilistClient.getInstance()
@@ -55,29 +59,11 @@ export class MangaCommand extends Command {
 		const media = search?.results?.[0];
 
 		if (!media) {
-			return interaction.reply({
-				content: '> No manga found.',
-				flags: MessageFlags.Ephemeral
-			});
+			return interaction.editReply({ content: '> No manga found.' });
 		}
 
-		const stripHtml = (text?: string | null) =>
-			text
-				?.replace(/<[^>]*>/g, '')
-				.replace(/\s+/g, ' ')
-				.trim() || '';
-
-		const formatDate = (date?: { year?: number | null; month?: number | null; day?: number | null } | null) => {
-			if (!date?.year) return 'Unknown';
-			const parts = [date.year, date.month, date.day].filter(Boolean);
-			return parts.join('-');
-		};
-
 		const title = media.title.romaji || media.title.english || media.title.native || 'Unknown title';
-
-		let description = stripHtml(media.description);
-		if (description.length > 700) description = `${description.slice(0, 697)}...`;
-
+		const description = truncate(stripHtml(media.description), 700);
 		const genres = media.genres?.join(', ') || 'Unknown';
 
 		const quickFacts = [
@@ -115,17 +101,17 @@ export class MangaCommand extends Command {
 
 		if (media.bannerImage) {
 			container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-
 			container.addMediaGalleryComponents(
-				new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(media.bannerImage).setDescription(`Banner image of ${title}`))
+				new MediaGalleryBuilder().addItems(
+					new MediaGalleryItemBuilder().setURL(media.bannerImage).setDescription(`Banner image of ${title}`)
+				)
 			);
 		}
 
 		container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-
 		container.addTextDisplayComponents(new TextDisplayBuilder().setContent(quickFacts));
 
-		return interaction.reply({
+		return interaction.editReply({
 			flags: MessageFlags.IsComponentsV2,
 			components: [container],
 			allowedMentions: { parse: [] }

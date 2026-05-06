@@ -1,5 +1,10 @@
 import { container } from '@sapphire/framework';
-import { createClient } from '@supabase/supabase-js';
+import {
+    createClient,
+    REALTIME_SUBSCRIBE_STATES,
+    type RealtimeChannel
+} from '@supabase/supabase-js';
+import { invalidateGuildSettings } from './guildSettingsCache';
 
 type GuildSettingsRow = {
     guild_id: string;
@@ -24,34 +29,97 @@ export const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: {
         autoRefreshToken: false,
         persistSession: false
+    },
+    realtime: {
+        params: {
+            eventsPerSecond: 10
+        },
+        heartbeatIntervalMs: 30_000,
+        timeout: 20_000
     }
 });
 
-const guildSettingsChannel = supabase
-    .channel('guild-settings-logs')
-    .on<GuildSettingsRow>(
-        'postgres_changes',
-        {
-            event: '*',
-            schema: 'public',
-            table: 'guild_settings'
-        },
-        (payload) => {
-            const guildId =
-                'guild_id' in payload.new
-                    ? payload.new.guild_id
-                    : 'guild_id' in payload.old
-                        ? payload.old.guild_id
-                        : 'unknown';
+let guildSettingsChannel: RealtimeChannel | null = null;
+let reconnectAttempts = 0;
+let reconnectTimer: NodeJS.Timeout | null = null;
+const MAX_RECONNECT_DELAY = 60_000;
 
-            container.logger.info(
-                `[Supabase] guild_settings ${payload.eventType} for guild ${guildId}`
-            );
-        }
-    )
-    .subscribe((status) => {
-        container.logger.info(`[Supabase] Realtime guild_settings channel status: ${status}`);
-    });
+function scheduleReconnect() {
+    if (reconnectTimer) return;
 
-export { guildSettingsChannel };
+    const delay = Math.min(1_000 * 2 ** reconnectAttempts, MAX_RECONNECT_DELAY);
+    reconnectAttempts++;
+
+    container.logger.warn(
+        `[Supabase] Reconnecting guild_settings channel in ${delay}ms (attempt ${reconnectAttempts})`
+    );
+
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        subscribeGuildSettings();
+    }, delay);
+}
+
+function subscribeGuildSettings() {
+    if (guildSettingsChannel) {
+        supabase.removeChannel(guildSettingsChannel).catch((err) => {
+            container.logger.warn('[Supabase] Failed to remove old channel:', err);
+        });
+        guildSettingsChannel = null;
+    }
+
+    guildSettingsChannel = supabase
+        .channel('guild-settings-logs')
+        .on<GuildSettingsRow>(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'guild_settings' },
+            async (payload) => {
+                const guildId =
+                    (payload.new && 'guild_id' in payload.new && payload.new.guild_id) ||
+                    (payload.old && 'guild_id' in payload.old && payload.old.guild_id);
+
+                if (!guildId) return;
+
+                await invalidateGuildSettings(guildId);
+                container.logger.info(
+                    `[Supabase] guild_settings ${payload.eventType} for ${guildId} → cache invalidated`
+                );
+            }
+        )
+        .subscribe((status, err) => {
+            switch (status) {
+                case REALTIME_SUBSCRIBE_STATES.SUBSCRIBED:
+                    reconnectAttempts = 0;
+                    container.logger.info(
+                        '[Supabase] guild_settings channel subscribed successfully.'
+                    );
+                    break;
+
+                case REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR:
+                    container.logger.error('[Supabase] Channel error:', err);
+                    scheduleReconnect();
+                    break;
+
+                case REALTIME_SUBSCRIBE_STATES.TIMED_OUT:
+                    container.logger.warn('[Supabase] Channel timed out.');
+                    scheduleReconnect();
+                    break;
+
+                case REALTIME_SUBSCRIBE_STATES.CLOSED:
+                    container.logger.warn('[Supabase] Channel closed.');
+                    scheduleReconnect();
+                    break;
+            }
+        });
+}
+
+subscribeGuildSettings();
+
+process.on('SIGTERM', () => {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (guildSettingsChannel) {
+        supabase.removeChannel(guildSettingsChannel).catch(() => { });
+    }
+});
+
 export default supabase;

@@ -1,6 +1,11 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
-import { ApplicationCommandOptionType, ApplicationIntegrationType, EmbedBuilder, InteractionContextType, MessageFlags } from 'discord.js';
+import {
+	ApplicationCommandOptionType,
+	ApplicationIntegrationType,
+	EmbedBuilder,
+	InteractionContextType,
+} from 'discord.js';
 
 interface NpmMaintainer {
 	name?: string;
@@ -36,30 +41,32 @@ interface NpmPackageMetadata {
 	};
 }
 
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+const isObject = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null;
 
 const isNpmPackageMetadata = (value: unknown): value is NpmPackageMetadata => {
 	if (!isObject(value)) return false;
-
 	const distTags = value['dist-tags'];
 	const versions = value.versions;
-
-	return (distTags === undefined || isObject(distTags)) && (versions === undefined || isObject(versions));
+	return (
+		(distTags === undefined || isObject(distTags)) &&
+		(versions === undefined || isObject(versions))
+	);
 };
+
+const formatDate = (value?: string): string =>
+	value ? `<t:${Math.floor(new Date(value).getTime() / 1000)}:D>` : 'Unknown';
 
 @ApplyOptions<Command.Options>({
 	description: 'Shows information about an npm package.'
 })
 export class NpmCommand extends Command {
 	public override registerApplicationCommands(registry: Command.Registry) {
-		const integrationTypes: ApplicationIntegrationType[] = [ApplicationIntegrationType.GuildInstall];
-		const contexts: InteractionContextType[] = [InteractionContextType.Guild];
-
 		registry.registerChatInputCommand({
 			name: this.name,
 			description: this.description,
-			integrationTypes,
-			contexts,
+			integrationTypes: [ApplicationIntegrationType.GuildInstall],
+			contexts: [InteractionContextType.Guild],
 			options: [
 				{
 					name: 'package',
@@ -74,26 +81,20 @@ export class NpmCommand extends Command {
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
 		const packageName = interaction.options.getString('package', true).trim();
 
+		await interaction.deferReply();
+
 		const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(packageName)}`, {
-			headers: {
-				Accept: 'application/json'
-			}
+			headers: { Accept: 'application/json' }
 		});
 
 		if (!response.ok) {
-			return interaction.reply({
-				content: '> Package not found.',
-				flags: MessageFlags.Ephemeral
-			});
+			return interaction.editReply({ content: '> Package not found.' });
 		}
 
 		const data: unknown = await response.json();
 
 		if (!isNpmPackageMetadata(data)) {
-			return interaction.reply({
-				content: '> Invalid npm registry response.',
-				flags: MessageFlags.Ephemeral
-			});
+			return interaction.editReply({ content: '> Invalid npm registry response.' });
 		}
 
 		const pkg = data;
@@ -101,10 +102,7 @@ export class NpmCommand extends Command {
 		const latest = latestVersion ? pkg.versions?.[latestVersion] : undefined;
 
 		if (!latest) {
-			return interaction.reply({
-				content: '> Could not resolve the latest package version.',
-				flags: MessageFlags.Ephemeral
-			});
+			return interaction.editReply({ content: '> Could not resolve the latest package version.' });
 		}
 
 		const dependenciesCount = Object.keys(latest.dependencies ?? {}).length;
@@ -112,19 +110,22 @@ export class NpmCommand extends Command {
 		const maintainers =
 			pkg.maintainers && pkg.maintainers.length > 0
 				? pkg.maintainers
-					.map((maintainer) => maintainer.name)
+					.map((m) => m.name)
 					.filter((name): name is string => Boolean(name))
 					.slice(0, 5)
 					.join(', ')
 				: 'Unknown';
 
-		const repositoryUrl = typeof latest.repository === 'string' ? latest.repository : (latest.repository?.url ?? null);
+		const repositoryUrl =
+			typeof latest.repository === 'string'
+				? latest.repository
+				: (latest.repository?.url ?? null);
 
-		const cleanRepositoryUrl = repositoryUrl?.replace(/^git\+/, '')?.replace(/\.git$/, '');
+		const cleanRepositoryUrl = repositoryUrl
+			?.replace(/^git\+/, '')
+			?.replace(/\.git$/, '');
 
 		const publishedAt = latestVersion ? pkg.time?.[latestVersion] : undefined;
-
-		const formatDate = (value?: string) => (value ? `<t:${Math.floor(new Date(value).getTime() / 1000)}:D>` : 'Unknown');
 
 		const embed = new EmbedBuilder()
 			.setColor(0xcb3837)
@@ -146,12 +147,10 @@ export class NpmCommand extends Command {
 				{ name: 'Modified', value: formatDate(pkg.time?.modified), inline: true },
 				{ name: 'Maintainers', value: maintainers, inline: false }
 			)
-			.setFooter({
-				text: 'Lura - npm Lookup'
-			})
+			.setFooter({ text: 'Lura - npm Lookup' })
 			.setTimestamp();
 
-		return interaction.reply({
+		return interaction.editReply({
 			embeds: [embed],
 			allowedMentions: { parse: [] }
 		});

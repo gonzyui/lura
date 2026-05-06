@@ -4,6 +4,7 @@ import Redis from 'ioredis';
 export interface RedisLikeClient {
     get(key: string): Promise<string | null>;
     set(key: string, value: string): Promise<unknown>;
+    setex(key: string, seconds: number, value: string): Promise<unknown>;
     del(...keys: (string | string[])[]): Promise<number>;
     expire(key: string, seconds: number): Promise<number>;
     keys(pattern: string): Promise<string[]>;
@@ -53,6 +54,11 @@ const redisLikeClient: RedisLikeClient = {
     async set(key, value) {
         await ensureConnection();
         return redis.set(key, value);
+    },
+
+    async setex(key, seconds, value) {
+        await ensureConnection();
+        return redis.setex(key, seconds, value);
     },
 
     async del(...keys) {

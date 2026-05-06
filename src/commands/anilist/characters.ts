@@ -8,6 +8,7 @@ import {
 	MediaGalleryBuilder,
 	MediaGalleryItemBuilder,
 	MessageFlags,
+	PermissionFlagsBits,
 	SectionBuilder,
 	SeparatorBuilder,
 	SeparatorSpacingSize,
@@ -16,20 +17,21 @@ import {
 } from 'discord.js';
 import AnilistClient from '../../lib/aniClient';
 import { CharacterSort } from 'ani-client';
+import { stripHtml, formatDate, truncate } from '../../lib/utils/formatters';
 
 @ApplyOptions<Command.Options>({
-	description: 'Shows informations about a character.'
+	description: 'Shows informations about a character.',
+	requiredClientPermissions: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.AttachFiles],
+	cooldownDelay: 3000,
+	cooldownLimit: 1
 })
 export class CharactersCommand extends Command {
 	public override registerApplicationCommands(registry: Command.Registry) {
-		const integrationTypes: ApplicationIntegrationType[] = [ApplicationIntegrationType.GuildInstall];
-		const contexts: InteractionContextType[] = [InteractionContextType.Guild];
-
 		registry.registerChatInputCommand({
 			name: this.name,
 			description: this.description,
-			integrationTypes,
-			contexts,
+			integrationTypes: [ApplicationIntegrationType.GuildInstall],
+			contexts: [InteractionContextType.Guild],
 			options: [
 				{
 					name: 'name',
@@ -42,6 +44,8 @@ export class CharactersCommand extends Command {
 	}
 
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
+		await interaction.deferReply();
+
 		const name = interaction.options.getString('name', true);
 
 		const search = await AnilistClient.getInstance()
@@ -54,36 +58,22 @@ export class CharactersCommand extends Command {
 		const character = search?.results?.[0];
 
 		if (!character) {
-			return interaction.reply({
-				content: '> No character found.',
-				flags: MessageFlags.Ephemeral
-			});
+			return interaction.editReply({ content: '> No character found.' });
 		}
 
-		const stripHtml = (text?: string | null) =>
-			text
-				?.replace(/<[^>]*>/g, '')
-				.replace(/\s+/g, ' ')
-				.trim() || '';
-
-		const formatDate = (date?: { year?: number | null; month?: number | null; day?: number | null } | null) => {
-			if (!date?.year) return 'Unknown';
-			const parts = [date.year, date.month, date.day].filter(Boolean);
-			return parts.join('-');
-		};
-
 		const characterName =
-			[character.name?.full, [character.name?.first, character.name?.last].filter(Boolean).join(' ').trim(), character.name?.native].find(
-				Boolean
-			) || 'Unknown character';
+			[
+				character.name?.full,
+				[character.name?.first, character.name?.last].filter(Boolean).join(' ').trim(),
+				character.name?.native
+			].find(Boolean) || 'Unknown character';
 
-		let description = stripHtml(character.description);
-		if (description.length > 700) description = `${description.slice(0, 697)}...`;
-
+		const description = truncate(stripHtml(character.description), 700);
 		const mediaPreview = character.media?.nodes?.slice(0, 4) || [];
+
 		const featuredIn =
 			mediaPreview
-				.map((media) => media.title?.romaji || media.title?.english || media.title?.native)
+				.map((m) => m.title?.romaji || m.title?.english || m.title?.native)
 				.filter(Boolean)
 				.join(', ') || 'Unknown';
 
@@ -114,26 +104,22 @@ export class CharactersCommand extends Command {
 		);
 
 		const galleryItems = mediaPreview
-			.filter((media) => media.coverImage?.extraLarge || media.coverImage?.large)
-			.map((media) =>
+			.filter((m) => m.coverImage?.extraLarge || m.coverImage?.large)
+			.map((m) =>
 				new MediaGalleryItemBuilder()
-					.setURL(media.coverImage?.extraLarge || media.coverImage?.large || '')
-					.setDescription(
-						`${characterName} appears in ${media.title?.romaji || media.title?.english || media.title?.native || 'this media'}`
-					)
+					.setURL(m.coverImage?.extraLarge || m.coverImage?.large || '')
+					.setDescription(`${characterName} appears in ${m.title?.romaji || m.title?.english || m.title?.native || 'this media'}`)
 			);
 
 		if (galleryItems.length > 0) {
 			container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-
 			container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(galleryItems));
 		}
 
 		container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-
 		container.addTextDisplayComponents(new TextDisplayBuilder().setContent(quickFacts));
 
-		return interaction.reply({
+		return interaction.editReply({
 			flags: MessageFlags.IsComponentsV2,
 			components: [container],
 			allowedMentions: { parse: [] }
