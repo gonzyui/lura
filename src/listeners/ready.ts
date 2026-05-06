@@ -55,7 +55,7 @@ ${line07} ${pad}
 		logger.info(this.styleStore(last, true));
 	}
 
-	private styleStore(store: (typeof this.container.client.stores extends Map<any, infer V> ? V : never), last: boolean) {
+	private styleStore(store: typeof this.container.client.stores extends Map<any, infer V> ? V : never, last: boolean) {
 		return gray(`${last ? '└─' : '├─'} Loaded ${this.style(store.size.toString().padEnd(3, ' '))} ${store.name}.`);
 	}
 }

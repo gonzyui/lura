@@ -22,7 +22,7 @@ const client = new SapphireClient({
 		delay: 5000,
 		limit: 2
 	},
-	typing: true,
+	typing: true
 });
 
 const main = async () => {

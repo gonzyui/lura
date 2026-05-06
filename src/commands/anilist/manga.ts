@@ -102,9 +102,7 @@ export class MangaCommand extends Command {
 		if (media.bannerImage) {
 			container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 			container.addMediaGalleryComponents(
-				new MediaGalleryBuilder().addItems(
-					new MediaGalleryItemBuilder().setURL(media.bannerImage).setDescription(`Banner image of ${title}`)
-				)
+				new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(media.bannerImage).setDescription(`Banner image of ${title}`))
 			);
 		}
 

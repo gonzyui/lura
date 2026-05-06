@@ -10,7 +10,7 @@ export default class AnilistClient {
 			cacheAdapter: new RedisCache({
 				client: redisLikeClient,
 				prefix: 'ani-client:',
-				ttl: 86_400,
+				ttl: 86_400
 			}),
 			rateLimit: {
 				enabled: true,
