@@ -40,12 +40,14 @@ export async function sendGuildLog(client: Client, guild: Guild, type: GuildEven
 			.setFooter({ text: `Now in ${guildCount.toLocaleString()} servers` })
 			.setTimestamp();
 
+		container.logger.debug(`[GuildLogger] Sending ${type} log for ${guild.id} via webhook...`);
 		await webhook.send({
 			embeds: [embed],
 			username: client.user?.username ?? 'Bot Logger',
 			avatarURL: client.user?.displayAvatarURL() ?? undefined,
 			allowedMentions: { parse: [] }
 		});
+		container.logger.debug(`[GuildLogger] Webhook sent successfully for ${guild.id}`);
 	} catch (error) {
 		container.logger.error(`[GuildLogger] Failed to send ${type} log for ${guild.id}:`, error);
 	}
