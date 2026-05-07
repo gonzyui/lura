@@ -4,6 +4,7 @@ import { invalidateGuildSettings } from './guildSettingsCache';
 
 type GuildSettingsRow = {
 	guild_id: string;
+	airing_channel_id: string | null;
 	news_channel_id: string | null;
 	notifications_enabled: boolean;
 	created_at: string;

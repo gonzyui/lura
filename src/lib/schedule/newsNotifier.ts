@@ -2,12 +2,14 @@ import { container } from '@sapphire/framework';
 import Parser from 'rss-parser';
 import { redis } from '../database/redis';
 import { getNewsChannelId } from '../database/guildSettingsStore';
-import { EmbedBuilder, type SendableChannels } from 'discord.js';
+import { EmbedBuilder, type Guild, type SendableChannels } from 'discord.js';
 
 const NEWS_FEED_URL = 'https://www.animenewsnetwork.com/all/rss.xml';
 const LAST_CHECKED_KEY = 'lura:news-notifier:lastChecked';
+const ETAG_KEY = 'lura:news-notifier:etag';
+const LAST_MODIFIED_KEY = 'lura:news-notifier:lastModified';
 const SENT_PREFIX = 'lura:news-notifier:sent:';
-const SENT_TTL_SECONDS = 60 * 60 * 24 * 30;
+const SENT_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 type RSSItem = {
 	title?: string;
@@ -18,11 +20,17 @@ type RSSItem = {
 	guid?: string;
 };
 
+type GuildChannel = { guild: Guild; channel: SendableChannels };
+
 export class NewsNotifier {
 	private isRunning = false;
 	private timeout: NodeJS.Timeout | null = null;
 	private parser = new Parser();
 	private lastChecked: number = Date.now();
+	private hasLoadedState = false;
+
+	private etag: string | null = null;
+	private lastModified: string | null = null;
 
 	private readonly pollInterval = 15 * 60 * 1000;
 
@@ -31,7 +39,7 @@ export class NewsNotifier {
 			container.logger.warn('[NewsNotifier] Already running.');
 			return;
 		}
-		void this.loadLastChecked().then(() => this.tick());
+		void this.tick();
 	}
 
 	public stop() {
@@ -72,28 +80,31 @@ export class NewsNotifier {
 		return text;
 	}
 
-	private async loadLastChecked() {
+	private async loadState() {
+		if (this.hasLoadedState) return;
+
 		try {
-			const saved = await redis.get(LAST_CHECKED_KEY);
-			if (saved) {
-				const parsed = Number(saved);
+			const [savedLastChecked, savedEtag, savedLastModified] = await redis.mget(LAST_CHECKED_KEY, ETAG_KEY, LAST_MODIFIED_KEY);
+
+			if (savedLastChecked) {
+				const parsed = Number(savedLastChecked);
 				if (Number.isFinite(parsed) && parsed > 0) {
 					this.lastChecked = parsed;
-					container.logger.info(`[NewsNotifier] Loaded lastChecked from Redis: ${new Date(this.lastChecked).toISOString()}`);
-					return;
+					container.logger.info(`[NewsNotifier] Loaded lastChecked: ${new Date(this.lastChecked).toISOString()}`);
 				}
+			} else {
+				const today = new Date();
+				today.setHours(0, 0, 0, 0);
+				this.lastChecked = today.getTime();
+				await this.saveLastChecked(this.lastChecked);
+				container.logger.info(`[NewsNotifier] First run: initialized to ${new Date(this.lastChecked).toISOString()}`);
 			}
 
-			const today = new Date();
-			today.setHours(0, 0, 0, 0);
-			this.lastChecked = today.getTime();
-
-			await this.saveLastChecked(this.lastChecked);
-			container.logger.info(
-				`[NewsNotifier] First run: initialized lastChecked to today at 00:00 UTC: ${new Date(this.lastChecked).toISOString()}`
-			);
+			this.etag = savedEtag;
+			this.lastModified = savedLastModified;
+			this.hasLoadedState = true;
 		} catch (err) {
-			container.logger.error('[NewsNotifier] Failed to load lastChecked:', err);
+			container.logger.error('[NewsNotifier] Failed to load state:', err);
 			const today = new Date();
 			today.setHours(0, 0, 0, 0);
 			this.lastChecked = today.getTime();
@@ -108,38 +119,101 @@ export class NewsNotifier {
 		}
 	}
 
-	private async tryMarkNewsSent(item: RSSItem): Promise<boolean> {
+	private async saveCacheHeaders(etag: string | null, lastModified: string | null) {
 		try {
-			const result = await redis.set(this.makeSentKey(item), '1', 'EX', SENT_TTL_SECONDS, 'NX');
-			return result === 'OK';
+			const pipeline = redis.pipeline();
+			if (etag) pipeline.set(ETAG_KEY, etag);
+			else pipeline.del(ETAG_KEY);
+			if (lastModified) pipeline.set(LAST_MODIFIED_KEY, lastModified);
+			else pipeline.del(LAST_MODIFIED_KEY);
+			await pipeline.exec();
 		} catch (err) {
-			container.logger.error('[NewsNotifier] Failed to mark news sent:', err);
-			return false;
+			container.logger.error('[NewsNotifier] Failed to save cache headers:', err);
 		}
+	}
+
+	private async batchMarkSent(items: RSSItem[]): Promise<Set<string>> {
+		if (items.length === 0) return new Set();
+
+		const pipeline = redis.pipeline();
+		for (const item of items) {
+			pipeline.set(this.makeSentKey(item), '1', 'EX', SENT_TTL_SECONDS, 'NX');
+		}
+		const results = await pipeline.exec();
+		const newlyMarked = new Set<string>();
+
+		if (!results) return newlyMarked;
+
+		for (let i = 0; i < results.length; i++) {
+			const [err, value] = results[i];
+			if (!err && value === 'OK') {
+				newlyMarked.add(this.makeKey(items[i]));
+			}
+		}
+		return newlyMarked;
 	}
 
 	private async unmarkNewsSent(item: RSSItem) {
 		try {
 			await redis.del(this.makeSentKey(item));
 		} catch (err) {
-			container.logger.error('[NewsNotifier] Failed to unmark news:', err);
+			container.logger.error('[NewsNotifier] Failed to unmark:', err);
 		}
 	}
 
-	private async getNewsChannel(guildId: string): Promise<SendableChannels | null> {
-		const channelId = await getNewsChannelId(guildId);
+	private async resolveGuildChannels(): Promise<GuildChannel[]> {
+		const guilds = [...container.client.guilds.cache.values()];
 
-		if (!channelId) return null;
+		const entries = await Promise.all(
+			guilds.map(async (guild) => {
+				try {
+					const channelId = await getNewsChannelId(guild.id);
+					if (!channelId) return null;
 
-		const cached = container.client.channels.cache.get(channelId);
-		if (cached?.isSendable()) return cached;
+					const cached = container.client.channels.cache.get(channelId);
+					if (cached?.isSendable()) return { guild, channel: cached as SendableChannels };
 
-		const fetched = await container.client.channels.fetch(channelId).catch(() => null);
-		if (!fetched?.isSendable()) {
-			container.logger.warn(`[NewsNotifier] News channel ${channelId} not found or not sendable (guild ${guildId}).`);
+					const fetched = await container.client.channels.fetch(channelId).catch(() => null);
+					if (fetched?.isSendable()) return { guild, channel: fetched as SendableChannels };
+
+					container.logger.warn(`[NewsNotifier] Channel ${channelId} not sendable (guild ${guild.id}).`);
+					return null;
+				} catch (err) {
+					container.logger.error(`[NewsNotifier] Failed to resolve channel for guild ${guild.id}:`, err);
+					return null;
+				}
+			})
+		);
+
+		return entries.filter((e): e is GuildChannel => e !== null);
+	}
+
+	private async fetchFeed(): Promise<{ items: RSSItem[]; etag: string | null; lastModified: string | null } | null> {
+		const headers: Record<string, string> = {
+			'User-Agent': 'Lura-Bot/1.0 (Discord notifier)'
+		};
+		if (this.etag) headers['If-None-Match'] = this.etag;
+		if (this.lastModified) headers['If-Modified-Since'] = this.lastModified;
+
+		const response = await fetch(NEWS_FEED_URL, { headers });
+
+		if (response.status === 304) {
+			container.logger.info('[NewsNotifier] Feed not modified (304).');
 			return null;
 		}
-		return fetched;
+
+		if (!response.ok) {
+			throw new Error(`Feed fetch failed: ${response.status} ${response.statusText}`);
+		}
+
+		const xml = await response.text();
+		const feed = await this.parser.parseString(xml);
+
+		return {
+			items: (feed.items || []) as RSSItem[],
+			etag: response.headers.get('etag'),
+			lastModified: response.headers.get('last-modified')
+		};
 	}
 
 	private buildMessage(item: RSSItem): EmbedBuilder {
@@ -149,8 +223,8 @@ export class NewsNotifier {
 		const pubDate = item.pubDate ? new Date(item.pubDate).toLocaleDateString() : 'Unknown date';
 
 		const embed = new EmbedBuilder()
-			.setTitle(title)
-			.setDescription(summary.length > 4096 ? summary.substring(0, 4093) + '...' : summary)
+			.setTitle(title.length > 256 ? title.slice(0, 253) + '...' : title)
+			.setDescription(summary)
 			.setURL(link)
 			.setColor(0xff6b6b)
 			.setFooter({ text: `Published: ${pubDate}` })
@@ -176,53 +250,60 @@ export class NewsNotifier {
 		container.logger.info('[NewsNotifier] Tick started.');
 
 		try {
-			const guildChannels = (
-				await Promise.all(
-					[...container.client.guilds.cache.values()].map(async (guild) => {
-						const channel = await this.getNewsChannel(guild.id);
-						return channel ? { guild, channel } : null;
-					})
-				)
-			).filter((entry): entry is { guild: typeof entry extends null ? never : NonNullable<typeof entry>['guild']; channel: SendableChannels } =>
-				Boolean(entry)
-			);
+			await this.loadState();
 
-			if (guildChannels.length === 0) {
-				container.logger.warn('[NewsNotifier] No configured news channels found.');
-				this.isRunning = false;
-				this.scheduleNext();
+			const feedResult = await this.fetchFeed();
+			if (!feedResult) {
 				return;
 			}
 
-			const feed = await this.parser.parseURL(NEWS_FEED_URL);
-			const items = (feed.items || [])
-				.filter((item) => item.pubDate)
-				.sort((a, b) => {
-					const aDate = new Date(a.pubDate!).getTime();
-					const bDate = new Date(b.pubDate!).getTime();
-					return bDate - aDate;
-				});
+			const { items: rawItems, etag, lastModified } = feedResult;
 
-			container.logger.info(`[NewsNotifier] Feed returned ${items.length} items.`);
+			if (etag !== this.etag || lastModified !== this.lastModified) {
+				this.etag = etag;
+				this.lastModified = lastModified;
+				await this.saveCacheHeaders(etag, lastModified);
+			}
+
+			const items = rawItems
+				.filter((item) => item.pubDate)
+				.map((item) => ({ item, date: new Date(item.pubDate!).getTime() }))
+				.filter(({ date }) => date >= this.lastChecked)
+				.sort((a, b) => a.date - b.date)
+				.map(({ item }) => item);
+
+			container.logger.info(`[NewsNotifier] Feed: ${rawItems.length} items, ${items.length} new since last check.`);
+
+			if (items.length === 0) {
+				return;
+			}
+
+			const newlyMarked = await this.batchMarkSent(items);
+			const toSend = items.filter((item) => newlyMarked.has(this.makeKey(item)));
+
+			let maxDate = items.reduce((max, item) => Math.max(max, new Date(item.pubDate!).getTime()), this.lastChecked);
+
+			if (toSend.length === 0) {
+				if (maxDate > this.lastChecked) {
+					this.lastChecked = maxDate;
+					await this.saveLastChecked(this.lastChecked);
+				}
+				return;
+			}
+
+			const guildChannels = await this.resolveGuildChannels();
+
+			if (guildChannels.length === 0) {
+				container.logger.warn('[NewsNotifier] No configured channels. Rolling back marks.');
+				await Promise.all(toSend.map((item) => this.unmarkNewsSent(item)));
+				return;
+			}
 
 			let sentCount = 0;
-			let maxDate = this.lastChecked;
 
-			for (const item of items) {
-				const itemDate = new Date(item.pubDate!).getTime();
-
-				if (itemDate < this.lastChecked) {
-					container.logger.debug(`[NewsNotifier] Skipping old item: "${item.title}" (${new Date(itemDate).toISOString()})`);
-					continue;
-				}
-
-				const wasMarked = await this.tryMarkNewsSent(item);
-				if (!wasMarked) {
-					container.logger.debug(`[NewsNotifier] Already sent: "${item.title}"`);
-					continue;
-				}
-
+			for (const item of toSend) {
 				const embed = this.buildMessage(item);
+				const itemDate = new Date(item.pubDate!).getTime();
 
 				const sendResults = await Promise.allSettled(
 					guildChannels.map(({ guild, channel }) =>
@@ -231,20 +312,25 @@ export class NewsNotifier {
 								embeds: [embed],
 								allowedMentions: { parse: [] }
 							})
-							.then(() => {
-								container.logger.info(`[NewsNotifier] Sent to guild ${guild.id}: ${item.title}`);
-								return guild.id;
-							})
+							.then(() => guild.id)
 					)
 				);
 
 				const successCount = sendResults.filter((r) => r.status === 'fulfilled').length;
+
+				for (const r of sendResults) {
+					if (r.status === 'rejected') {
+						container.logger.error(`[NewsNotifier] Failed to send "${item.title}":`, r.reason);
+					}
+				}
 
 				if (successCount === 0) {
 					container.logger.warn(`[NewsNotifier] All guilds failed for "${item.title}". Rolling back.`);
 					await this.unmarkNewsSent(item);
 					continue;
 				}
+
+				container.logger.info(`[NewsNotifier] "${item.title}" sent to ${successCount}/${guildChannels.length} guilds.`);
 
 				sentCount++;
 				maxDate = Math.max(maxDate, itemDate);
@@ -260,7 +346,7 @@ export class NewsNotifier {
 				container.logger.info(`[NewsNotifier] Sent ${sentCount} news items.`);
 			}
 		} catch (error) {
-			container.logger.error('[NewsNotifier] Error fetching feed:', error);
+			container.logger.error('[NewsNotifier] Error in tick:', error);
 		} finally {
 			this.isRunning = false;
 			this.scheduleNext();
