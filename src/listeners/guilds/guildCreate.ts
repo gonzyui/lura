@@ -2,6 +2,7 @@ import { ApplyOptions } from '@sapphire/decorators';
 import { Events, Listener } from '@sapphire/framework';
 import { ChannelType, EmbedBuilder, PermissionFlagsBits, type Guild, type TextChannel } from 'discord.js';
 import { ensure } from '../../lib/database/guildSettingsStore';
+import { sendGuildLog } from '../../lib/utils/guildLogger';
 
 @ApplyOptions<Listener.Options>({
 	event: Events.GuildCreate
@@ -9,6 +10,7 @@ import { ensure } from '../../lib/database/guildSettingsStore';
 export class GuildCreateListener extends Listener<typeof Events.GuildCreate> {
 	public override async run(guild: Guild) {
 		this.container.logger.info(`[GuildCreate] Joined guild: ${guild.name} (${guild.id}) — ${guild.memberCount} members`);
+		await sendGuildLog(this.container.client, guild, 'join');
 
 		try {
 			await ensure(guild.id);
