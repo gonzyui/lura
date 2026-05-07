@@ -3,8 +3,8 @@ import { Command } from '@sapphire/framework';
 import { ApplicationCommandOptionType, ApplicationIntegrationType, InteractionContextType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import AnilistClient from '../../lib/aniClient';
 import { StudioSort } from 'ani-client';
-import { buildStudioContainer, buildStudioListContainer } from '../../lib/utils/studioRenderer';
-import { autocompleteStudio } from '../../lib/utils/studioAutocomplete';
+import { buildStudioContainer, buildStudioListContainer } from '../../lib/utils/renderer/studio';
+import { autocompleteStudio } from '../../lib/utils/autocomplete/studio';
 
 @ApplyOptions<Command.Options>({
 	description: 'Search an animation studio.',

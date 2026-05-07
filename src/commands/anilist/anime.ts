@@ -3,9 +3,9 @@ import { Command } from '@sapphire/framework';
 import { ApplicationCommandOptionType, ApplicationIntegrationType, InteractionContextType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import AnilistClient from '../../lib/aniClient';
 import { MediaSort, MediaStatus, MediaType } from 'ani-client';
-import { buildMediaContainer } from '../../lib/utils/mediaRenderer';
+import { buildMediaContainer } from '../../lib/utils/renderer/media';
 import { paginateMediaList } from '../../lib/utils/paginator';
-import { autocompleteMedia } from '../../lib/utils/mediaAutocomplete';
+import { autocompleteMedia } from '../../lib/utils/autocomplete/media';
 
 const SPECIALS = [
 	{ name: '🔥 Trending', value: 'trending' },

@@ -15,6 +15,7 @@ import {
 	SeparatorSpacingSize,
 	TextDisplayBuilder,
 	ThumbnailBuilder,
+	type Guild,
 	type SendableChannels
 } from 'discord.js';
 import { redis } from '../database/redis';
@@ -23,7 +24,7 @@ import { getAiringChannelId } from '../database/guildSettingsStore';
 const LAST_CHECKED_KEY = 'lura:episode-notifier:lastChecked';
 const LAST_ACTIVITY_KEY = 'lura:episode-notifier:lastActivity';
 const SENT_PREFIX = 'lura:episode-notifier:sent:';
-const SENT_TTL_SECONDS = 60 * 60 * 24 * 30;
+const SENT_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 type LastActivityPayload = {
 	title: string;
@@ -34,8 +35,25 @@ type AiredSchedule = {
 	id?: number;
 	airingAt: number;
 	episode?: number;
-	media?: any;
+	media?: {
+		id?: number;
+		title?: { english?: string; romaji?: string; native?: string };
+		coverImage?: { extraLarge?: string; large?: string; medium?: string };
+		bannerImage?: string;
+		description?: string;
+		genres?: string[];
+		format?: string;
+		status?: string;
+		episodes?: number;
+		duration?: number;
+		popularity?: number;
+		averageScore?: number;
+		favourites?: number;
+		siteUrl?: string;
+	};
 };
+
+type GuildChannel = { guild: Guild; channel: SendableChannels };
 
 export class EpisodeNotifier {
 	private lastChecked = Math.floor(Date.now() / 1000) - 3600;
@@ -96,7 +114,8 @@ export class EpisodeNotifier {
 		if (this.hasLoadedState) return;
 
 		try {
-			const savedLastChecked = await redis.get(LAST_CHECKED_KEY);
+			const [savedLastChecked, savedActivity] = await redis.mget(LAST_CHECKED_KEY, LAST_ACTIVITY_KEY);
+
 			if (savedLastChecked) {
 				const parsed = Number(savedLastChecked);
 				if (Number.isFinite(parsed) && parsed > 0) {
@@ -104,14 +123,17 @@ export class EpisodeNotifier {
 				}
 			}
 
-			const savedActivity = await redis.get(LAST_ACTIVITY_KEY);
 			if (savedActivity) {
-				const parsed = JSON.parse(savedActivity) as LastActivityPayload;
-				if (parsed?.title) {
-					container.client.user?.setActivity({
-						name: `Episode ${parsed.episode ?? '?'} of ${parsed.title}`,
-						type: ActivityType.Watching
-					});
+				try {
+					const parsed = JSON.parse(savedActivity) as LastActivityPayload;
+					if (parsed?.title) {
+						container.client.user?.setActivity({
+							name: `Episode ${parsed.episode ?? '?'} of ${parsed.title}`,
+							type: ActivityType.Watching
+						});
+					}
+				} catch (e) {
+					container.logger.warn('[AniClient] Failed to parse last activity payload.');
 				}
 			}
 
@@ -130,72 +152,93 @@ export class EpisodeNotifier {
 		await redis.set(LAST_ACTIVITY_KEY, JSON.stringify(payload));
 	}
 
-	private async tryMarkEpisodeSent(schedule: AiredSchedule) {
-		const result = await redis.set(this.makeSentKey(schedule), '1', 'EX', SENT_TTL_SECONDS, 'NX');
-		return result === 'OK';
+	private async batchMarkSent(schedules: AiredSchedule[]): Promise<Set<string>> {
+		if (schedules.length === 0) return new Set();
+
+		const pipeline = redis.pipeline();
+		for (const s of schedules) {
+			pipeline.set(this.makeSentKey(s), '1', 'EX', SENT_TTL_SECONDS, 'NX');
+		}
+		const results = await pipeline.exec();
+		const newlyMarked = new Set<string>();
+
+		if (!results) return newlyMarked;
+
+		for (let i = 0; i < results.length; i++) {
+			const [err, value] = results[i];
+			if (!err && value === 'OK') {
+				newlyMarked.add(this.makeKey(schedules[i]));
+			}
+		}
+		return newlyMarked;
 	}
 
 	private async unmarkEpisodeSent(schedule: AiredSchedule) {
 		await redis.del(this.makeSentKey(schedule));
 	}
 
-	private async getAiringChannel(guildId: string) {
-		const channelId = await getAiringChannelId(guildId);
+	private async resolveGuildChannels(): Promise<GuildChannel[]> {
+		const guilds = [...container.client.guilds.cache.values()];
 
-		if (!channelId) return null;
+		const entries = await Promise.all(
+			guilds.map(async (guild) => {
+				try {
+					const channelId = await getAiringChannelId(guild.id);
+					if (!channelId) return null;
 
-		const cached = container.client.channels.cache.get(channelId);
-		if (cached?.isSendable()) return cached;
+					const cached = container.client.channels.cache.get(channelId);
+					if (cached?.isSendable()) return { guild, channel: cached as SendableChannels };
 
-		const fetched = await container.client.channels.fetch(channelId).catch(() => null);
-		if (!fetched?.isSendable()) {
-			container.logger.warn(`[AniClient] Airing channel ${channelId} not found or not sendable (guild ${guildId}).`);
-			return null;
-		}
-		return fetched;
+					const fetched = await container.client.channels.fetch(channelId).catch(() => null);
+					if (fetched?.isSendable()) return { guild, channel: fetched as SendableChannels };
+
+					return null;
+				} catch (err) {
+					container.logger.error(`[AniClient] Failed to resolve channel for guild ${guild.id}:`, err);
+					return null;
+				}
+			})
+		);
+
+		return entries.filter((e): e is GuildChannel => e !== null);
 	}
 
 	private buildMessage(schedule: AiredSchedule) {
-		const media = schedule.media;
-		const title = media.title?.english || media.title?.native || media.title?.romaji || 'Unknown title';
+		const media = schedule.media!;
+		const title = media.title?.english || media.title?.romaji || media.title?.native || 'Unknown title';
+		const cover = media.coverImage?.extraLarge || media.coverImage?.large || media.coverImage?.medium;
+		const banner = media.bannerImage;
 		const description = this.cleanDescription(media.description);
 
-		const headerLine = ['## New episode released', `# ${title}`].join('\n');
+		const messageContainer = new ContainerBuilder().setAccentColor(0x9b59ff);
 
-		const detailsLine = [
-			`**Episode:** ${schedule.episode ?? 'Unknown'}`,
-			media.format ? `**Format:** ${media.format}` : null,
-			media.status ? `**Status:** ${media.status}` : null
-		]
-			.filter(Boolean)
-			.join(' • ');
-
-		const messageContainer = new ContainerBuilder().setAccentColor(0xff1a64);
-
-		const section = new SectionBuilder().addTextDisplayComponents(
-			new TextDisplayBuilder().setContent(headerLine),
-			new TextDisplayBuilder().setContent([detailsLine, description].filter(Boolean).join('\n\n'))
+		messageContainer.addTextDisplayComponents(
+			new TextDisplayBuilder().setContent(`# 📺 New Episode Aired!\n## ${title} — Episode ${schedule.episode ?? '?'}`)
 		);
 
-		const thumb = media.coverImage?.extraLarge || media.coverImage?.large;
-		if (thumb) {
-			section.setThumbnailAccessory(new ThumbnailBuilder().setURL(thumb).setDescription(`Cover image of ${title}`));
+		if (banner) {
+			messageContainer.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(banner)));
 		}
 
+		messageContainer.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+
+		const section = new SectionBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(description));
+
+		if (cover) {
+			section.setThumbnailAccessory(new ThumbnailBuilder().setURL(cover));
+		}
 		messageContainer.addSectionComponents(section);
 
-		if (media.bannerImage) {
-			messageContainer.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-			messageContainer.addMediaGalleryComponents(
-				new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(media.bannerImage).setDescription(`Banner image of ${title}`))
-			);
-		}
-
-		messageContainer.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+		messageContainer.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
 
 		messageContainer.addTextDisplayComponents(
 			new TextDisplayBuilder().setContent(
 				[
+					`**Format:** ${media.format ?? 'Unknown'}`,
+					`**Status:** ${media.status ?? 'Unknown'}`,
+					`**Episodes:** ${media.episodes ?? 'Unknown'}`,
+					`**Duration:** ${media.duration ? `${media.duration} min` : 'Unknown'}`,
+					`**Genres:** ${media.genres?.join(', ') || 'Unknown'}`,
 					`**Popularity:** ${media.popularity ?? 'Unknown'}`,
 					`**Score:** ${media.averageScore ?? 'Unknown'}`,
 					`**Favorites:** ${media.favourites ?? 'Unknown'}`
@@ -210,7 +253,7 @@ export class EpisodeNotifier {
 				.setURL(media.siteUrl || 'https://anilist.co')
 		);
 
-		return { title, components: [messageContainer, row] as const };
+		return { title, components: [messageContainer, row] };
 	}
 
 	private async tick() {
@@ -220,26 +263,9 @@ export class EpisodeNotifier {
 		}
 
 		this.isRunning = true;
-		container.logger.info('[AniClient] Interval tick.');
 
 		try {
 			await this.loadState();
-
-			const guildChannels = (
-				await Promise.all(
-					[...container.client.guilds.cache.values()].map(async (guild) => {
-						const channel = await this.getAiringChannel(guild.id);
-						return channel ? { guild, channel } : null;
-					})
-				)
-			).filter((entry): entry is { guild: typeof entry extends null ? never : NonNullable<typeof entry>['guild']; channel: SendableChannels } =>
-				Boolean(entry)
-			);
-
-			if (guildChannels.length === 0) {
-				container.logger.warn('[AniClient] No configured airing channels found.');
-				return;
-			}
 
 			const notif = await AnilistClient.getInstance()
 				.getAniClient()
@@ -250,27 +276,52 @@ export class EpisodeNotifier {
 				});
 
 			const results = ((notif.results ?? []) as AiredSchedule[])
-				.filter((schedule) => schedule?.airingAt && schedule.media)
+				.filter((s) => {
+					if (!s?.airingAt) return false;
+					if (!s.media) {
+						container.logger.warn(`[AniClient] Schedule ${s.id} missing media, skipping.`);
+						return false;
+					}
+					return true;
+				})
 				.sort((a, b) => a.airingAt - b.airingAt);
 
+			if (results.length === 0) {
+				return;
+			}
+
+			const sample = results
+				.slice(0, 5)
+				.map((r) => r.media?.title?.english || r.media?.title?.romaji || r.media?.title?.native)
+				.join(', ');
 			container.logger.info(
-				`[AniClient] API returned ${results.length} results. ${
-					results.length > 0
-						? `(${results.map((r) => r.media?.title?.english || r.media?.title?.romaji || r.media?.title?.native).join(', ')})`
-						: '(Nothing)'
-				}`
+				`[AniClient] API returned ${results.length} results: ${sample}${results.length > 5 ? `, ... and ${results.length - 5} more` : ''}`
 			);
 
-			let maxAiringAtSeen = this.lastChecked;
+			const newlyMarked = await this.batchMarkSent(results);
+			const toSend = results.filter((s) => newlyMarked.has(this.makeKey(s)));
+
+			let maxAiringAtSeen = results.reduce((max, s) => Math.max(max, s.airingAt ?? 0), this.lastChecked);
+
+			if (toSend.length === 0) {
+				if (maxAiringAtSeen > this.lastChecked) {
+					this.lastChecked = maxAiringAtSeen;
+					await this.saveLastChecked(this.lastChecked);
+				}
+				return;
+			}
+
+			const guildChannels = await this.resolveGuildChannels();
+
+			if (guildChannels.length === 0) {
+				container.logger.warn('[AniClient] Nothing to send: no configured airing channels.');
+				await Promise.all(toSend.map((s) => this.unmarkEpisodeSent(s)));
+				return;
+			}
+
 			let latestActivity: LastActivityPayload | null = null;
 
-			for (const schedule of results) {
-				const wasMarked = await this.tryMarkEpisodeSent(schedule);
-				if (!wasMarked) {
-					maxAiringAtSeen = Math.max(maxAiringAtSeen, schedule.airingAt ?? 0);
-					continue;
-				}
-
+			for (const schedule of toSend) {
 				const { title, components } = this.buildMessage(schedule);
 
 				const sendResults = await Promise.allSettled(
@@ -278,30 +329,30 @@ export class EpisodeNotifier {
 						channel
 							.send({
 								flags: MessageFlags.IsComponentsV2,
-								components: [...components],
+								components,
 								allowedMentions: { parse: [] }
 							})
-							.then(() => {
-								container.logger.info(`[AniClient] Episode sent to guild ${guild.id}: ${title} #${schedule.episode ?? '?'}`);
-								return guild.id;
-							})
+							.then(() => guild.id)
 					)
 				);
 
 				const successCount = sendResults.filter((r) => r.status === 'fulfilled').length;
-				const failures = sendResults.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
 
-				for (const failure of failures) {
-					container.logger.error(`[AniClient] Failed to send episode "${title}":`, failure.reason);
+				for (const r of sendResults) {
+					if (r.status === 'rejected') {
+						container.logger.error(`[AniClient] Failed to send "${title}":`, r.reason);
+					}
 				}
 
 				if (successCount === 0) {
-					container.logger.warn(`[AniClient] All guilds failed for "${title}" #${schedule.episode}. Rolling back sent flag.`);
+					container.logger.warn(`[AniClient] All guilds failed for "${title}" #${schedule.episode}. Rolling back.`);
 					await this.unmarkEpisodeSent(schedule);
 					continue;
 				}
 
-				maxAiringAtSeen = Math.max(maxAiringAtSeen, schedule.airingAt ?? 0);
+				container.logger.info(
+					`[AniClient] Episode "${title}" #${schedule.episode ?? '?'} sent to ${successCount}/${guildChannels.length} guilds.`
+				);
 
 				latestActivity = {
 					title,
@@ -322,7 +373,7 @@ export class EpisodeNotifier {
 				});
 			}
 		} catch (error) {
-			container.logger.error('[AniClient] Error fetching episodes:', error);
+			container.logger.error('[AniClient] Error in tick:', error);
 		} finally {
 			this.isRunning = false;
 			this.scheduleNext();

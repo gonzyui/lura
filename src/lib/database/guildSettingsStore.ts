@@ -1,7 +1,14 @@
 import { container } from '@sapphire/framework';
 import supabase from './supabase';
 import { redis } from './redis';
-import { guildSettingsCacheKey, invalidateGuildSettings, GUILD_SETTINGS_CACHE_TTL_SECONDS, GUILD_SETTINGS_NULL_SENTINEL } from './guildSettingsCache';
+import {
+	guildSettingsCacheKey,
+	invalidateGuildSettings,
+	getMemoryCache,
+	setMemoryCache,
+	GUILD_SETTINGS_CACHE_TTL_SECONDS,
+	GUILD_SETTINGS_NULL_SENTINEL
+} from './guildSettingsCache';
 
 export type GuildSettings = {
 	guild_id: string;
@@ -13,30 +20,37 @@ export type GuildSettings = {
 };
 
 export async function getGuildSettings(guildId: string): Promise<GuildSettings | null> {
+	const mem = getMemoryCache(guildId);
+	if (mem.hit) return mem.value;
+
 	const key = guildSettingsCacheKey(guildId);
 
 	try {
 		const cached = await redis.get(key);
 		if (cached !== null) {
-			if (cached === GUILD_SETTINGS_NULL_SENTINEL) return null;
-			return JSON.parse(cached) as GuildSettings;
+			const value = cached === GUILD_SETTINGS_NULL_SENTINEL ? null : (JSON.parse(cached) as GuildSettings);
+			setMemoryCache(guildId, value);
+			return value;
 		}
 	} catch (err) {
 		container.logger.warn(`[GuildSettings] Redis get failed for ${guildId}, falling back to DB:`, err);
 	}
 
 	const { data, error } = await supabase.from('guild_settings').select('*').eq('guild_id', guildId).maybeSingle();
-
 	if (error) throw error;
 
+	const value = (data as GuildSettings | null) ?? null;
+
+	// Populate L1 + L2
+	setMemoryCache(guildId, value);
 	try {
-		const value = data ? JSON.stringify(data) : GUILD_SETTINGS_NULL_SENTINEL;
-		await redis.setex(key, GUILD_SETTINGS_CACHE_TTL_SECONDS, value);
+		const serialized = value ? JSON.stringify(value) : GUILD_SETTINGS_NULL_SENTINEL;
+		await redis.setex(key, GUILD_SETTINGS_CACHE_TTL_SECONDS, serialized);
 	} catch (err) {
 		container.logger.warn(`[GuildSettings] Redis cache write failed for ${guildId}:`, err);
 	}
 
-	return data as GuildSettings | null;
+	return value;
 }
 
 export async function getAiringChannelId(guildId: string): Promise<string | null> {
@@ -65,48 +79,50 @@ async function mergeAndUpsert(
 	};
 
 	const { data, error } = await supabase.from('guild_settings').upsert(payload, { onConflict: 'guild_id' }).select().single();
-
 	if (error) throw error;
 
 	await invalidateGuildSettings(guildId);
-
 	return data as GuildSettings;
 }
 
 export async function setAiringChannel(guildId: string, channelId: string | null): Promise<GuildSettings> {
+	const existing = await getGuildSettings(guildId);
+
+	const willHaveNews = existing?.news_channel_id ?? null;
+	const enableNotifs = Boolean(channelId || willHaveNews);
+
 	return mergeAndUpsert(guildId, {
 		airing_channel_id: channelId,
-		notifications_enabled: channelId ? true : false
+		notifications_enabled: enableNotifs
 	});
+}
+
+export async function setNewsChannel(guildId: string, channelId: string | null): Promise<GuildSettings> {
+	const existing = await getGuildSettings(guildId);
+
+	const willHaveAiring = existing?.airing_channel_id ?? null;
+	const enableNotifs = Boolean(channelId || willHaveAiring);
+
+	return mergeAndUpsert(guildId, {
+		news_channel_id: channelId,
+		notifications_enabled: enableNotifs
+	});
+}
+
+export async function setNotificationsEnabled(guildId: string, enabled: boolean): Promise<GuildSettings> {
+	return mergeAndUpsert(guildId, { notifications_enabled: enabled });
 }
 
 export async function ensure(guildId: string): Promise<void> {
 	const { error } = await supabase.from('guild_settings').upsert({ guild_id: guildId }, { onConflict: 'guild_id', ignoreDuplicates: true });
-
 	if (error) throw error;
-
 	await invalidateGuildSettings(guildId);
 }
 
 export async function deleteGuild(guildId: string): Promise<void> {
 	const { error } = await supabase.from('guild_settings').delete().eq('guild_id', guildId);
-
 	if (error) throw error;
-
 	await invalidateGuildSettings(guildId);
-}
-
-export async function setNewsChannel(guildId: string, channelId: string | null): Promise<GuildSettings> {
-	return mergeAndUpsert(guildId, {
-		news_channel_id: channelId,
-		notifications_enabled: channelId ? true : false
-	});
-}
-
-export async function setNotificationsEnabled(guildId: string, enabled: boolean): Promise<GuildSettings> {
-	return mergeAndUpsert(guildId, {
-		notifications_enabled: enabled
-	});
 }
 
 export { invalidateGuildSettings } from './guildSettingsCache';

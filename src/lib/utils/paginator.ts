@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, type ChatInputCommandInteraction } from 'discord.js';
 import { MediaType } from 'ani-client';
-import { buildMediaListContainer } from './mediaRenderer';
+import { buildMediaListContainer } from './renderer/media';
 
 export async function paginateMediaList(interaction: ChatInputCommandInteraction, list: any[], type: MediaType, title: string) {
 	let page = 0;
