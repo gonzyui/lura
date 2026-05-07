@@ -13,6 +13,7 @@ services:
       - SUPABASE_URL
       - SUPABASE_SERVICE_ROLE_KEY
       - WELCOME_CHANNEL
+      - GUILD_LOG_WEBHOOK_URL
     deploy:
       resources:
         limits:
