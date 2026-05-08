@@ -14,6 +14,7 @@ export type GuildSettings = {
 	guild_id: string;
 	airing_channel_id: string | null;
 	news_channel_id: string | null;
+	chapter_channel_id: string | null;
 	notifications_enabled: boolean;
 	created_at?: string;
 	updated_at?: string;
@@ -41,7 +42,6 @@ export async function getGuildSettings(guildId: string): Promise<GuildSettings |
 
 	const value = (data as GuildSettings | null) ?? null;
 
-	// Populate L1 + L2
 	setMemoryCache(guildId, value);
 	try {
 		const serialized = value ? JSON.stringify(value) : GUILD_SETTINGS_NULL_SENTINEL;
@@ -65,6 +65,12 @@ export async function getNewsChannelId(guildId: string): Promise<string | null> 
 	return settings.news_channel_id;
 }
 
+export async function getChapterChannelId(guildId: string): Promise<string | null> {
+	const settings = await getGuildSettings(guildId);
+	if (!settings?.notifications_enabled) return null;
+	return settings.chapter_channel_id;
+}
+
 async function mergeAndUpsert(
 	guildId: string,
 	updates: Partial<Omit<GuildSettings, 'guild_id' | 'created_at' | 'updated_at'>>
@@ -75,6 +81,7 @@ async function mergeAndUpsert(
 		guild_id: guildId,
 		airing_channel_id: updates.airing_channel_id !== undefined ? updates.airing_channel_id : (existing?.airing_channel_id ?? null),
 		news_channel_id: updates.news_channel_id !== undefined ? updates.news_channel_id : (existing?.news_channel_id ?? null),
+		chapter_channel_id: updates.chapter_channel_id !== undefined ? updates.chapter_channel_id : (existing?.chapter_channel_id ?? null),
 		notifications_enabled: updates.notifications_enabled !== undefined ? updates.notifications_enabled : (existing?.notifications_enabled ?? true)
 	};
 
@@ -89,7 +96,8 @@ export async function setAiringChannel(guildId: string, channelId: string | null
 	const existing = await getGuildSettings(guildId);
 
 	const willHaveNews = existing?.news_channel_id ?? null;
-	const enableNotifs = Boolean(channelId || willHaveNews);
+	const willHaveChapter = existing?.chapter_channel_id ?? null;
+	const enableNotifs = Boolean(channelId || willHaveNews || willHaveChapter);
 
 	return mergeAndUpsert(guildId, {
 		airing_channel_id: channelId,
@@ -101,10 +109,24 @@ export async function setNewsChannel(guildId: string, channelId: string | null):
 	const existing = await getGuildSettings(guildId);
 
 	const willHaveAiring = existing?.airing_channel_id ?? null;
-	const enableNotifs = Boolean(channelId || willHaveAiring);
+	const willHaveChapter = existing?.chapter_channel_id ?? null;
+	const enableNotifs = Boolean(channelId || willHaveAiring || willHaveChapter);
 
 	return mergeAndUpsert(guildId, {
 		news_channel_id: channelId,
+		notifications_enabled: enableNotifs
+	});
+}
+
+export async function setChapterChannel(guildId: string, channelId: string | null): Promise<GuildSettings> {
+	const existing = await getGuildSettings(guildId);
+
+	const willHaveAiring = existing?.airing_channel_id ?? null;
+	const willHaveNews = existing?.news_channel_id ?? null;
+	const enableNotifs = Boolean(channelId || willHaveAiring || willHaveNews);
+
+	return mergeAndUpsert(guildId, {
+		chapter_channel_id: channelId,
 		notifications_enabled: enableNotifs
 	});
 }
@@ -123,6 +145,23 @@ export async function deleteGuild(guildId: string): Promise<void> {
 	const { error } = await supabase.from('guild_settings').delete().eq('guild_id', guildId);
 	if (error) throw error;
 	await invalidateGuildSettings(guildId);
+}
+
+export async function listGuildsWithChapterChannel(): Promise<Array<{ guildId: string; channelId: string }>> {
+	const { data, error } = await supabase
+		.from('guild_settings')
+		.select('guild_id, chapter_channel_id, notifications_enabled')
+		.not('chapter_channel_id', 'is', null)
+		.eq('notifications_enabled', true);
+
+	if (error) {
+		container.logger.error('[GuildSettings] listGuildsWithChapterChannel failed:', error);
+		return [];
+	}
+
+	return (data ?? [])
+		.filter((row) => row.chapter_channel_id)
+		.map((row) => ({ guildId: row.guild_id, channelId: row.chapter_channel_id as string }));
 }
 
 export { invalidateGuildSettings } from './guildSettingsCache';
