@@ -69,6 +69,7 @@ export class EpisodeNotifier {
 			container.logger.warn('[AniClient] EpisodeNotifier is already running.');
 			return;
 		}
+		this.isRunning = true;
 		void this.tick();
 	}
 

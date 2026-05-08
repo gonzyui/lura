@@ -3,6 +3,7 @@ import { Listener } from '@sapphire/framework';
 import { blue, gray, green, magenta, magentaBright, white, yellow } from 'colorette';
 import { EpisodeNotifier } from '../lib/schedule/episodeNotifier';
 import { NewsNotifier } from '../lib/schedule/newsNotifier';
+import { ChapterNotifier } from '../lib/schedule/chapterNotifier';
 
 const dev = process.env.NODE_ENV !== 'production';
 
@@ -19,6 +20,9 @@ export class ClientReadyListener extends Listener {
 
 		const newsNotifier = new NewsNotifier();
 		newsNotifier.start();
+
+		const chapterNotifier = new ChapterNotifier(this.container.client);
+		chapterNotifier.start();
 	}
 
 	private printBanner() {

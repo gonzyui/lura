@@ -10,7 +10,15 @@ import {
 	PermissionFlagsBits,
 	type GuildTextBasedChannel
 } from 'discord.js';
-import { setAiringChannel, setNewsChannel, getGuildSettings } from '../../lib/database/guildSettingsStore';
+import { setAiringChannel, setNewsChannel, setChapterChannel, getGuildSettings } from '../../lib/database/guildSettingsStore';
+
+type ChannelKind = 'airing' | 'news' | 'chapter';
+
+const KIND_LABEL: Record<ChannelKind, string> = {
+	airing: '📺 Airing',
+	news: '📰 News',
+	chapter: '📖 Chapter'
+};
 
 @ApplyOptions<Command.Options>({
 	description: 'Configure the bot for this server.',
@@ -35,8 +43,10 @@ export class ConfigCommand extends Command {
 						{ name: '👁️ View current configuration', value: 'view' },
 						{ name: '📺 Set airing channel', value: 'set_airing' },
 						{ name: '📰 Set news channel', value: 'set_news' },
+						{ name: '📖 Set chapter channel', value: 'set_chapter' },
 						{ name: '🗑️ Reset airing channel', value: 'reset_airing' },
-						{ name: '🗑️ Reset news channel', value: 'reset_news' }
+						{ name: '🗑️ Reset news channel', value: 'reset_news' },
+						{ name: '🗑️ Reset chapter channel', value: 'reset_chapter' }
 					]
 				},
 				{
@@ -70,10 +80,28 @@ export class ConfigCommand extends Command {
 				return this.handleSet(interaction, 'airing');
 			case 'set_news':
 				return this.handleSet(interaction, 'news');
+			case 'set_chapter':
+				return this.handleSet(interaction, 'chapter');
 			case 'reset_airing':
 				return this.handleReset(interaction, 'airing');
 			case 'reset_news':
 				return this.handleReset(interaction, 'news');
+			case 'reset_chapter':
+				return this.handleReset(interaction, 'chapter');
+		}
+	}
+
+	private async applyChannelChange(guildId: string, kind: ChannelKind, channelId: string | null): Promise<void> {
+		switch (kind) {
+			case 'airing':
+				await setAiringChannel(guildId, channelId);
+				return;
+			case 'news':
+				await setNewsChannel(guildId, channelId);
+				return;
+			case 'chapter':
+				await setChapterChannel(guildId, channelId);
+				return;
 		}
 	}
 
@@ -95,19 +123,16 @@ export class ConfigCommand extends Command {
 				return;
 			}
 
-			const airingChannelText = settings.airing_channel_id
-				? `<#${settings.airing_channel_id}> (\`${settings.airing_channel_id}\`)`
-				: '❌ Not set';
-			const newsChannelText = settings.news_channel_id ? `<#${settings.news_channel_id}> (\`${settings.news_channel_id}\`)` : '❌ Not set';
-			const notificationsText = settings.notifications_enabled ? '✅ Enabled' : '❌ Disabled';
+			const fmt = (id: string | null) => (id ? `<#${id}> (\`${id}\`)` : '❌ Not set');
 
 			const embed = new EmbedBuilder()
 				.setColor(0xff1a64)
 				.setTitle('Server Configuration')
 				.addFields(
-					{ name: '📺 Airing Channel', value: airingChannelText, inline: false },
-					{ name: '📰 News Channel', value: newsChannelText, inline: false },
-					{ name: '🔔 Notifications', value: notificationsText, inline: false }
+					{ name: '📺 Airing Channel', value: fmt(settings.airing_channel_id), inline: false },
+					{ name: '📰 News Channel', value: fmt(settings.news_channel_id), inline: false },
+					{ name: '📖 Chapter Channel', value: fmt(settings.chapter_channel_id), inline: false },
+					{ name: '🔔 Notifications', value: settings.notifications_enabled ? '✅ Enabled' : '❌ Disabled', inline: false }
 				)
 				.setFooter({ text: `Guild ID: ${interaction.guildId}` })
 				.setTimestamp();
@@ -119,16 +144,14 @@ export class ConfigCommand extends Command {
 		}
 	}
 
-	private async handleSet(interaction: Command.ChatInputCommandInteraction, type: 'airing' | 'news'): Promise<void> {
+	private async handleSet(interaction: Command.ChatInputCommandInteraction, kind: ChannelKind): Promise<void> {
 		const channel = interaction.options.getChannel('channel', false, [
 			ChannelType.GuildText,
 			ChannelType.GuildAnnouncement
 		]) as GuildTextBasedChannel | null;
 
 		if (!channel) {
-			await interaction.editReply({
-				content: '❌ You must provide a `channel` when using a "set" action.'
-			});
+			await interaction.editReply({ content: '❌ You must provide a `channel` when using a "set" action.' });
 			return;
 		}
 
@@ -155,53 +178,41 @@ export class ConfigCommand extends Command {
 		}
 
 		try {
-			if (type === 'airing') {
-				await setAiringChannel(interaction.guildId!, channel.id);
-			} else {
-				await setNewsChannel(interaction.guildId!, channel.id);
-			}
-
-			const typeName = type === 'airing' ? '📺 Airing' : '📰 News';
+			await this.applyChannelChange(interaction.guildId!, kind, channel.id);
 
 			await interaction.editReply({
 				embeds: [
 					new EmbedBuilder()
 						.setColor(0xff1a64)
 						.setTitle('Configuration updated')
-						.setDescription(`✅ **${typeName} Channel** set to <#${channel.id}>`)
+						.setDescription(`✅ **${KIND_LABEL[kind]} Channel** set to <#${channel.id}>`)
 						.setFooter({ text: `Guild ID: ${interaction.guildId}` })
 						.setTimestamp()
 				]
 			});
 		} catch (error) {
-			this.container.logger.error(`[Config] Failed to set ${type} channel:`, error);
-			await interaction.editReply({ content: `❌ Database error while setting ${type} channel.` });
+			this.container.logger.error(`[Config] Failed to set ${kind} channel:`, error);
+			await interaction.editReply({ content: `❌ Database error while setting ${kind} channel.` });
 		}
 	}
 
-	private async handleReset(interaction: Command.ChatInputCommandInteraction, type: 'airing' | 'news'): Promise<void> {
+	private async handleReset(interaction: Command.ChatInputCommandInteraction, kind: ChannelKind): Promise<void> {
 		try {
-			if (type === 'airing') {
-				await setAiringChannel(interaction.guildId!, null);
-			} else {
-				await setNewsChannel(interaction.guildId!, null);
-			}
-
-			const typeName = type === 'airing' ? '📺 Airing' : '📰 News';
+			await this.applyChannelChange(interaction.guildId!, kind, null);
 
 			await interaction.editReply({
 				embeds: [
 					new EmbedBuilder()
 						.setColor(0xff1a64)
 						.setTitle('Configuration updated')
-						.setDescription(`✅ **${typeName} Channel** has been removed`)
+						.setDescription(`✅ **${KIND_LABEL[kind]} Channel** has been removed`)
 						.setFooter({ text: `Guild ID: ${interaction.guildId}` })
 						.setTimestamp()
 				]
 			});
 		} catch (error) {
-			this.container.logger.error(`[Config] Failed to reset ${type} channel:`, error);
-			await interaction.editReply({ content: `❌ Database error while resetting ${type} channel.` });
+			this.container.logger.error(`[Config] Failed to reset ${kind} channel:`, error);
+			await interaction.editReply({ content: `❌ Database error while resetting ${kind} channel.` });
 		}
 	}
 }

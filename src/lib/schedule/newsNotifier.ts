@@ -39,6 +39,7 @@ export class NewsNotifier {
 			container.logger.warn('[NewsNotifier] Already running.');
 			return;
 		}
+		this.isRunning = true;
 		void this.tick();
 	}
 
