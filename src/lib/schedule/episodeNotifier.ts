@@ -69,7 +69,6 @@ export class EpisodeNotifier {
 			container.logger.warn('[AniClient] EpisodeNotifier is already running.');
 			return;
 		}
-		this.isRunning = true;
 		void this.tick();
 	}
 
@@ -262,6 +261,8 @@ export class EpisodeNotifier {
 			container.logger.warn('[AniClient] Tick skipped: previous run still active.');
 			return;
 		}
+
+		this.isRunning = true;
 
 		try {
 			await this.loadState();
