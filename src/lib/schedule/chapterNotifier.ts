@@ -89,7 +89,9 @@ export class ChapterNotifier {
 			await redis.set(REDIS_LAST_CHECKED, new Date().toISOString());
 		}
 
+		container.logger.info('[ChapterNotifier] Launching first tick...');
 		await this.tick();
+		container.logger.info('[ChapterNotifier] First tick done, scheduling interval');
 		this.timer = setInterval(() => void this.tick(), POLL_INTERVAL_MS);
 	}
 
@@ -102,9 +104,14 @@ export class ChapterNotifier {
 	}
 
 	private async tick(): Promise<void> {
-		if (this.isRunning) return;
+		if (this.isRunning) {
+			container.logger.info('[ChapterNotifier] Already running, skipping');
+			return;
+		}
 		this.isRunning = true;
+		container.logger.info('[ChapterNotifier] Tick start');
 		try {
+			container.logger.info('[ChapterNotifier] Fetching recent chapters');
 			const lastCheckedRaw = await redis.get(REDIS_LAST_CHECKED);
 			const lastChecked = lastCheckedRaw ? new Date(lastCheckedRaw) : new Date(Date.now() - POLL_INTERVAL_MS);
 
@@ -231,7 +238,10 @@ export class ChapterNotifier {
 			return null;
 		}
 
-		if (!media.status || (media.status !== 'RELEASING' && media.status !== 'HIATUS')) return null;
+		if (!media.status || media.status !== 'RELEASING') {
+			await redis.setex(cacheKey, MAP_TTL_SECONDS, 'null');
+			return null;
+		}
 
 		const mapped = {
 			id: media.id,
