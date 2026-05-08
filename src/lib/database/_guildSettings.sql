@@ -2,6 +2,7 @@ create table if not exists public.guild_settings (
     guild_id text primary key,
     airing_channel_id text,
     news_channel_id text,
+    chapter_channel_id text,
     notifications_enabled boolean not null default true,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
@@ -28,6 +29,7 @@ execute function public.set_updated_at();
 create index if not exists guild_settings_notifications_enabled_idx
     on public.guild_settings (notifications_enabled)
     where notifications_enabled = true;
+
 create index if not exists guild_settings_airing_channel_id_idx
     on public.guild_settings (airing_channel_id)
     where airing_channel_id is not null;
@@ -35,6 +37,10 @@ create index if not exists guild_settings_airing_channel_id_idx
 create index if not exists guild_settings_news_channel_id_idx
     on public.guild_settings (news_channel_id)
     where news_channel_id is not null;
+
+create index if not exists guild_settings_chapter_channel_id_idx
+    on public.guild_settings (chapter_channel_id)
+    where chapter_channel_id is not null;
 
 alter table public.guild_settings enable row level security;
 
