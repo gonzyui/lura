@@ -263,8 +263,6 @@ export class EpisodeNotifier {
 			return;
 		}
 
-		this.isRunning = true;
-
 		try {
 			await this.loadState();
 
