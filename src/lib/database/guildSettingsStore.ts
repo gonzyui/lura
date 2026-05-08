@@ -65,7 +65,7 @@ export async function getNewsChannelId(guildId: string): Promise<string | null> 
 	return settings.news_channel_id;
 }
 
-export async function getChapterChannelId(guildId: string): Promise<string | null> {
+export async function _getChapterChannelId(guildId: string): Promise<string | null> {
 	const settings = await getGuildSettings(guildId);
 	if (!settings?.notifications_enabled) return null;
 	return settings.chapter_channel_id;
@@ -118,7 +118,7 @@ export async function setNewsChannel(guildId: string, channelId: string | null):
 	});
 }
 
-export async function setChapterChannel(guildId: string, channelId: string | null): Promise<GuildSettings> {
+export async function _setChapterChannel(guildId: string, channelId: string | null): Promise<GuildSettings> {
 	const existing = await getGuildSettings(guildId);
 
 	const willHaveAiring = existing?.airing_channel_id ?? null;
@@ -147,7 +147,7 @@ export async function deleteGuild(guildId: string): Promise<void> {
 	await invalidateGuildSettings(guildId);
 }
 
-export async function listGuildsWithChapterChannel(): Promise<Array<{ guildId: string; channelId: string }>> {
+export async function _listGuildsWithChapterChannel(): Promise<Array<{ guildId: string; channelId: string }>> {
 	const { data, error } = await supabase
 		.from('guild_settings')
 		.select('guild_id, chapter_channel_id, notifications_enabled')

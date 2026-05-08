@@ -10,14 +10,13 @@ import {
 	PermissionFlagsBits,
 	type GuildTextBasedChannel
 } from 'discord.js';
-import { setAiringChannel, setNewsChannel, setChapterChannel, getGuildSettings } from '../../lib/database/guildSettingsStore';
+import { setAiringChannel, setNewsChannel, getGuildSettings } from '../../lib/database/guildSettingsStore';
 
-type ChannelKind = 'airing' | 'news' | 'chapter';
+type ChannelKind = 'airing' | 'news';
 
 const KIND_LABEL: Record<ChannelKind, string> = {
 	airing: '📺 Airing',
-	news: '📰 News',
-	chapter: '📖 Chapter'
+	news: '📰 News'
 };
 
 @ApplyOptions<Command.Options>({
@@ -43,10 +42,8 @@ export class ConfigCommand extends Command {
 						{ name: '👁️ View current configuration', value: 'view' },
 						{ name: '📺 Set airing channel', value: 'set_airing' },
 						{ name: '📰 Set news channel', value: 'set_news' },
-						{ name: '📖 Set chapter channel', value: 'set_chapter' },
 						{ name: '🗑️ Reset airing channel', value: 'reset_airing' },
-						{ name: '🗑️ Reset news channel', value: 'reset_news' },
-						{ name: '🗑️ Reset chapter channel', value: 'reset_chapter' }
+						{ name: '🗑️ Reset news channel', value: 'reset_news' }
 					]
 				},
 				{
@@ -80,14 +77,10 @@ export class ConfigCommand extends Command {
 				return this.handleSet(interaction, 'airing');
 			case 'set_news':
 				return this.handleSet(interaction, 'news');
-			case 'set_chapter':
-				return this.handleSet(interaction, 'chapter');
 			case 'reset_airing':
 				return this.handleReset(interaction, 'airing');
 			case 'reset_news':
 				return this.handleReset(interaction, 'news');
-			case 'reset_chapter':
-				return this.handleReset(interaction, 'chapter');
 		}
 	}
 
@@ -98,9 +91,6 @@ export class ConfigCommand extends Command {
 				return;
 			case 'news':
 				await setNewsChannel(guildId, channelId);
-				return;
-			case 'chapter':
-				await setChapterChannel(guildId, channelId);
 				return;
 		}
 	}
@@ -131,8 +121,7 @@ export class ConfigCommand extends Command {
 				.addFields(
 					{ name: '📺 Airing Channel', value: fmt(settings.airing_channel_id), inline: false },
 					{ name: '📰 News Channel', value: fmt(settings.news_channel_id), inline: false },
-					{ name: '📖 Chapter Channel', value: fmt(settings.chapter_channel_id), inline: false },
-					{ name: '🔔 Notifications', value: settings.notifications_enabled ? '✅ Enabled' : '❌ Disabled', inline: false }
+					{ name: ' Notifications', value: settings.notifications_enabled ? '✅ Enabled' : '❌ Disabled', inline: false }
 				)
 				.setFooter({ text: `Guild ID: ${interaction.guildId}` })
 				.setTimestamp();
