@@ -202,6 +202,7 @@ export class ChapterNotifier {
 		};
 
 		const ani = await this.resolveAniList(mangaRel.id, mangaTitle, anilistId);
+
 		if (ani) enriched.anilist = ani;
 
 		return enriched;
@@ -229,6 +230,8 @@ export class ChapterNotifier {
 			await redis.setex(cacheKey, MAP_TTL_SECONDS, 'null');
 			return null;
 		}
+
+		if (!media.status || (media.status !== 'RELEASING' && media.status !== 'HIATUS')) return null;
 
 		const mapped = {
 			id: media.id,
